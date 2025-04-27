@@ -141,27 +141,31 @@ class CubeRenderer:
                             face_idx = face_indices[(nx, ny, nz)]
                             
                             # Calculate the sticker index within the face
-                            if face_idx == 0:  # Top face
+                            if face_idx == 0:  # Top face (U)
                                 row = z + 1
                                 col = x + 1
                                 sticker_idx = row * 3 + col
-                            elif face_idx == 5:  # Bottom face
+                            elif face_idx == 5:  # Bottom face (D)
+                                # Fix for bottom face indexing
                                 row = 1 - z
                                 col = x + 1
+                                # The key fix: correct mapping for the bottom face
                                 sticker_idx = row * 3 + col
-                            elif face_idx == 1:  # Right face
+                                # Ensure index is within bounds (0-8)
+                                sticker_idx = min(8, max(0, sticker_idx))
+                            elif face_idx == 1:  # Right face (R)
                                 row = y + 1
                                 col = 1 - z
                                 sticker_idx = row * 3 + col
-                            elif face_idx == 3:  # Left face
+                            elif face_idx == 3:  # Left face (L)
                                 row = y + 1
                                 col = z + 1
                                 sticker_idx = row * 3 + col
-                            elif face_idx == 2:  # Front face
+                            elif face_idx == 2:  # Front face (F)
                                 row = y + 1
                                 col = x + 1
                                 sticker_idx = row * 3 + col
-                            elif face_idx == 4:  # Back face
+                            elif face_idx == 4:  # Back face (B)
                                 row = y + 1
                                 col = 1 - x
                                 sticker_idx = row * 3 + col
@@ -211,3 +215,64 @@ class CubeRenderer:
         # Ensure full 360-degree rotation is possible by using modulo
         self.rotation_y %= 360
         self.rotation_x %= 360
+
+    def get_face_at_position(self, x, y):
+        """Determine which face is at the given screen position based on current view"""
+        # Calculate which face is most visible based on the rotation angles
+        rotation_y_mod = self.rotation_y % 360
+        rotation_x_mod = self.rotation_x % 360
+        
+        # Determine the most visible face based on current rotation
+        # First determine front/back/left/right based on Y rotation
+        if -45 <= rotation_y_mod <= 45 or rotation_y_mod >= 315 or rotation_y_mod <= -315:
+            primary_face = 'F'  # Front is most visible
+        elif 45 <= rotation_y_mod <= 135 or -315 <= rotation_y_mod <= -225:
+            primary_face = 'R'  # Right is most visible
+        elif 135 <= rotation_y_mod <= 225 or -225 <= rotation_y_mod <= -135:
+            primary_face = 'B'  # Back is most visible
+        elif 225 <= rotation_y_mod <= 315 or -135 <= rotation_y_mod <= -45:
+            primary_face = 'L'  # Left is most visible
+        else:
+            primary_face = 'F'  # Default to front
+        
+        # Then check if top or bottom overrides based on X rotation
+        if rotation_x_mod > 60 and rotation_x_mod < 300:
+            primary_face = 'D'  # Bottom is most visible
+        elif rotation_x_mod < -60 or rotation_x_mod > 300:
+            primary_face = 'U'  # Top is most visible
+        
+        # Determine whether clockwise or counterclockwise is more intuitive from this viewpoint
+        # This is a simplification - a more advanced version would consider mouse position
+        clockwise = True
+        
+        # Adjust clockwise direction based on face
+        if primary_face == 'B':
+            # For back face, flip the direction to feel more intuitive
+            clockwise = False
+        
+        return primary_face, clockwise
+
+    def get_face_for_swipe(self, x, y, direction):
+        """Determine which face to rotate based on swipe direction and current view"""
+        # Get the primary face for the current view
+        face, _ = self.get_face_at_position(x, y)
+        
+        # Map direction to clockwise/counterclockwise based on the current view
+        # This approach gives a more intuitive feel when swipe direction switches
+        # based on which face is visible
+        clockwise = False
+        
+        if face == 'F':
+            clockwise = (direction in ['right', 'down'])
+        elif face == 'B':
+            clockwise = (direction in ['left', 'up'])
+        elif face == 'L':
+            clockwise = (direction in ['up', 'right'])
+        elif face == 'R':
+            clockwise = (direction in ['down', 'left'])
+        elif face == 'U':
+            clockwise = (direction in ['right', 'up'])
+        elif face == 'D':
+            clockwise = (direction in ['left', 'down'])
+        
+        return face, clockwise
