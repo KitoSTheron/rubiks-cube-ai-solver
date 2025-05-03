@@ -1,8 +1,8 @@
+import threading
+
 class Cube:
     def __init__(self):
         # Initialize a solved cube state
-        # Each face is represented as a list of 9 colors (0-8, starting from top-left)
-        # The order of faces is: [U, R, F, L, B, D]
         self.state = [
             ['W'] * 9,  # Up (white)
             ['R'] * 9,  # Left (red)
@@ -11,35 +11,152 @@ class Cube:
             ['G'] * 9,  # Back (green)
             ['Y'] * 9   # Down (yellow)
         ]
-    
+        self.lock = threading.Lock()  # Lock for concurrency
+
     def get_state(self):
         return self.state
-    
+
     def rotate_face(self, face, direction='clockwise'):
         """
         Rotate a face of the cube
         face: one of 'U', 'D', 'L', 'R', 'F', 'B'
         direction: 'clockwise', 'counterclockwise', or '180'
         """
-        face_map = {'U': 0, 'R': 1, 'F': 2, 'L': 3, 'B': 4, 'D': 5}
+        with self.lock:  # Ensure only one rotation happens at a time
+            print(f"Rotating face {face} {direction}")
+            print("State before rotation:")
+            for i, face_state in enumerate(self.state):
+                print(f"Face {i}: {face_state}")
+
+            face_map = {'U': 0, 'R': 1, 'F': 2, 'L': 3, 'B': 4, 'D': 5}
+            
+            if face not in face_map:
+                raise ValueError(f"Invalid face: {face}")
+            
+            face_idx = face_map[face]
+            
+            # For R, B, and D faces, invert the direction for face rotation
+            actual_direction = direction
+            if face in ['R', 'B', 'D']:
+                if direction == 'clockwise':
+                    actual_direction = 'counterclockwise'
+                elif direction == 'counterclockwise':
+                    actual_direction = 'clockwise'
+            
+            # 1. Rotate the face itself
+            if actual_direction == 'clockwise':
+                self._rotate_face_clockwise(face_idx)
+            elif actual_direction == 'counterclockwise':
+                self._rotate_face_counterclockwise(face_idx)
+            elif actual_direction == '180':
+                self._rotate_face_clockwise(face_idx)
+                self._rotate_face_clockwise(face_idx)
+            
+            # 2. Rotate the adjacent edges (using same actual_direction)
+            if face == 'U':
+                self._rotate_U_edges(direction)
+            elif face == 'D':
+                self._rotate_D_edges(actual_direction)
+            elif face == 'L':
+                self._rotate_L_edges(direction)
+            elif face == 'R':
+                self._rotate_R_edges(actual_direction)
+            elif face == 'F':
+                self._rotate_F_edges(direction)
+            elif face == 'B':
+                self._rotate_B_edges(actual_direction)
+            
+            # Validate the cube state after rotation
+            self._validate_state()
+            self._validate_physical_constraints()  # Add this line to validate physical constraints
+
+            print("State after rotation:")
+            for i, face_state in enumerate(self.state):
+                print(f"Face {i}: {face_state}")
+
+    def _validate_state(self):
+        """
+        Validate the cube's state to ensure it is consistent and possible.
+        """
+        # Count the occurrences of each color
+        color_counts = {}
+        for face in self.state:
+            for color in face:
+                color_counts[color] = color_counts.get(color, 0) + 1
         
-        if face not in face_map:
-            raise ValueError(f"Invalid face: {face}")
-        
-        face_idx = face_map[face]
-        
-        # 1. Rotate the face itself
-        if direction == 'clockwise':
-            self._rotate_face_clockwise(face_idx)
-        elif direction == 'counterclockwise':
-            self._rotate_face_counterclockwise(face_idx)
-        elif direction == '180':
-            self._rotate_face_clockwise(face_idx)
-            self._rotate_face_clockwise(face_idx)
-        
-        # 2. Rotate the adjacent edges
-        self._rotate_adjacent_edges(face, direction)
-        
+        # Each color should appear exactly 9 times
+        for color, count in color_counts.items():
+            if count != 9:
+                raise ValueError(f"Invalid cube state: {color} appears {count} times (expected 9).")
+
+    def _validate_physical_constraints(self):
+        """
+        Validate the cube's state to ensure it adheres to physical constraints.
+        """
+        # Define the expected pieces for a standard Rubik's Cube
+        expected_edges = {
+            frozenset(['W', 'R']), frozenset(['W', 'B']), frozenset(['W', 'O']), frozenset(['W', 'G']),
+            frozenset(['Y', 'R']), frozenset(['Y', 'B']), frozenset(['Y', 'O']), frozenset(['Y', 'G']),
+            frozenset(['R', 'B']), frozenset(['B', 'O']), frozenset(['O', 'G']), frozenset(['G', 'R'])
+        }
+        expected_corners = {
+            frozenset(['W', 'R', 'B']), frozenset(['W', 'B', 'O']), frozenset(['W', 'O', 'G']), frozenset(['W', 'G', 'R']),
+            frozenset(['Y', 'R', 'B']), frozenset(['Y', 'B', 'O']), frozenset(['Y', 'O', 'G']), frozenset(['Y', 'G', 'R'])
+        }
+
+        # Extract edges and corners from the current state
+        edges = set()
+        corners = set()
+
+        # Define the positions of edges and corners on each face
+        edge_mappings = [
+            # (face1, index1, face2, index2)
+            (0, 1, 1, 1),  # U-R
+            (0, 5, 2, 1),  # U-F
+            (0, 7, 3, 1),  # U-L
+            (0, 3, 4, 1),  # U-B
+            (5, 1, 1, 7),  # D-R
+            (5, 5, 2, 7),  # D-F
+            (5, 7, 3, 7),  # D-L
+            (5, 3, 4, 7),  # D-B
+            (2, 3, 3, 5),  # F-L
+            (2, 5, 1, 3),  # F-R
+            (4, 3, 1, 5),  # B-R
+            (4, 5, 3, 3)   # B-L
+        ]
+
+        corner_mappings = [
+            # (face1, index1, face2, index2, face3, index3)
+            (0, 0, 3, 0, 4, 2),  # U-L-B
+            (0, 2, 1, 0, 2, 2),  # U-R-F
+            (0, 6, 3, 2, 2, 0),  # U-L-F
+            (0, 8, 1, 2, 4, 0),  # U-R-B
+            (5, 0, 3, 8, 4, 6),  # D-L-B
+            (5, 2, 1, 8, 2, 6),  # D-R-F
+            (5, 6, 3, 6, 2, 8),  # D-L-F
+            (5, 8, 1, 6, 4, 8)   # D-R-B
+        ]
+
+        # Extract edges
+        for face1, index1, face2, index2 in edge_mappings:
+            edge = frozenset([self.state[face1][index1], self.state[face2][index2]])
+            edges.add(edge)
+
+        # Extract corners
+        for face1, index1, face2, index2, face3, index3 in corner_mappings:
+            corner = frozenset([self.state[face1][index1], self.state[face2][index2], self.state[face3][index3]])
+            corners.add(corner)
+
+        # Validate edges
+        for edge in edges:
+            if edge not in expected_edges:
+                raise ValueError(f"Invalid edge piece: {edge}")
+
+        # Validate corners
+        for corner in corners:
+            if corner not in expected_corners:
+                raise ValueError(f"Invalid corner piece: {corner}")
+
     def _rotate_face_clockwise(self, face_idx):
         """Rotate the stickers on a single face clockwise"""
         face = self.state[face_idx]
@@ -62,100 +179,60 @@ class Cube:
         for _ in range(3):
             self._rotate_face_clockwise(face_idx)
     
-    def _rotate_adjacent_edges(self, face, direction):
-        """Rotate the edges adjacent to the given face"""
-        # Define the adjacent edges for each face
-        if face == 'U':
-            self._rotate_U_edges(direction)
-        elif face == 'D':
-            self._rotate_D_edges(direction)
-        elif face == 'L':
-            self._rotate_L_edges(direction)
-        elif face == 'R':
-            self._rotate_R_edges(direction)
-        elif face == 'F':
-            self._rotate_F_edges(direction)
-        elif face == 'B':
-            self._rotate_B_edges(direction)
-    
     def _rotate_U_edges(self, direction):
         """Rotate edges adjacent to the U face"""
-        # The affected edges are the top rows of F, R, B, L
-        F, R, B, L = 2, 1, 4, 3
-        
+        F, R, B, L = 2, 1, 4, 3  # Face indices for Front, Right, Back, Left
+
         # Save the original values
-        temp_F = self.state[F][0:3].copy()  # Top row of Front
-        temp_R = self.state[R][0:3].copy()  # Top row of Right
-        temp_B = self.state[B][0:3].copy()  # Top row of Back
-        temp_L = self.state[L][0:3].copy()  # Top row of Left
-        
+        temp_F = self.state[F][0:3].copy()
+        temp_R = self.state[R][0:3].copy()
+        temp_B = self.state[B][0:3].copy()
+        temp_L = self.state[L][0:3].copy()
+
         if direction == 'clockwise':
-            # Front gets Left's top
             self.state[F][0:3] = temp_L[0:3]
-            # Right gets Front's top
             self.state[R][0:3] = temp_F[0:3]
-            # Back gets Right's top
             self.state[B][0:3] = temp_R[0:3]
-            # Left gets Back's top
             self.state[L][0:3] = temp_B[0:3]
         elif direction == 'counterclockwise':
-            # Front gets Right's top
             self.state[F][0:3] = temp_R[0:3]
-            # Right gets Back's top
             self.state[R][0:3] = temp_B[0:3]
-            # Back gets Left's top
             self.state[B][0:3] = temp_L[0:3]
-            # Left gets Front's top
             self.state[L][0:3] = temp_F[0:3]
         elif direction == '180':
-            # Front gets Back's top
             self.state[F][0:3] = temp_B[0:3]
-            # Right gets Left's top
             self.state[R][0:3] = temp_L[0:3]
-            # Back gets Front's top
             self.state[B][0:3] = temp_F[0:3]
-            # Left gets Right's top
             self.state[L][0:3] = temp_R[0:3]
-    
+
     def _rotate_D_edges(self, direction):
         """Rotate edges adjacent to the D face"""
-        # The affected edges are the bottom rows of F, R, B, L
-        F, R, B, L = 2, 1, 4, 3
-        
-        # Save the original values - explicitly accessing indices 6, 7, 8
-        temp_F = [self.state[F][6], self.state[F][7], self.state[F][8]]  # Bottom row of Front
-        temp_R = [self.state[R][6], self.state[R][7], self.state[R][8]]  # Bottom row of Right
-        temp_B = [self.state[B][6], self.state[B][7], self.state[B][8]]  # Bottom row of Back
-        temp_L = [self.state[L][6], self.state[L][7], self.state[L][8]]  # Bottom row of Left
-        
+        F, R, B, L = 2, 1, 4, 3  # Face indices for Front, Right, Back, Left
+
+        # Save the original values (bottom row of each face)
+        temp_F = self.state[F][6:9].copy()
+        temp_R = self.state[R][6:9].copy()
+        temp_B = self.state[B][6:9].copy()
+        temp_L = self.state[L][6:9].copy()
+
         if direction == 'clockwise':
-            # Front gets Right's bottom
-            self.state[F][6], self.state[F][7], self.state[F][8] = temp_R[0], temp_R[1], temp_R[2]
-            # Right gets Back's bottom
-            self.state[R][6], self.state[R][7], self.state[R][8] = temp_B[0], temp_B[1], temp_B[2]
-            # Back gets Left's bottom
-            self.state[B][6], self.state[B][7], self.state[B][8] = temp_L[0], temp_L[1], temp_L[2]
-            # Left gets Front's bottom
-            self.state[L][6], self.state[L][7], self.state[L][8] = temp_F[0], temp_F[1], temp_F[2]
+            # Rotate bottom rows clockwise
+            self.state[F][6:9] = temp_L
+            self.state[R][6:9] = temp_F
+            self.state[B][6:9] = temp_R
+            self.state[L][6:9] = temp_B
         elif direction == 'counterclockwise':
-            # Front gets Left's bottom
-            self.state[F][6], self.state[F][7], self.state[F][8] = temp_L[0], temp_L[1], temp_L[2]
-            # Right gets Front's bottom
-            self.state[R][6], self.state[R][7], self.state[R][8] = temp_F[0], temp_F[1], temp_F[2]
-            # Back gets Right's bottom
-            self.state[B][6], self.state[B][7], self.state[B][8] = temp_R[0], temp_R[1], temp_R[2]
-            # Left gets Back's bottom
-            self.state[L][6], self.state[L][7], self.state[L][8] = temp_B[0], temp_B[1], temp_B[2]
+            # Rotate bottom rows counterclockwise
+            self.state[F][6:9] = temp_R
+            self.state[R][6:9] = temp_B
+            self.state[B][6:9] = temp_L
+            self.state[L][6:9] = temp_F
         elif direction == '180':
-            # Instead of calling rotate_D_edges twice, do it directly for better performance
-            # Front gets Back's bottom
-            self.state[F][6], self.state[F][7], self.state[F][8] = temp_B[0], temp_B[1], temp_B[2]
-            # Right gets Left's bottom
-            self.state[R][6], self.state[R][7], self.state[R][8] = temp_L[0], temp_L[1], temp_L[2]
-            # Back gets Front's bottom
-            self.state[B][6], self.state[B][7], self.state[B][8] = temp_F[0], temp_F[1], temp_F[2]
-            # Left gets Right's bottom
-            self.state[L][6], self.state[L][7], self.state[L][8] = temp_R[0], temp_R[1], temp_R[2]
+            # Rotate bottom rows 180 degrees
+            self.state[F][6:9] = temp_B
+            self.state[R][6:9] = temp_L
+            self.state[B][6:9] = temp_F
+            self.state[L][6:9] = temp_R
     
     def _rotate_F_edges(self, direction):
         """Rotate edges adjacent to the F face"""

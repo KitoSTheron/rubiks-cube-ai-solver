@@ -111,6 +111,7 @@ class MainWindow:
         faces = ['U', 'D', 'L', 'R', 'F', 'B']
         for _ in range(20):
             face = random.choice(faces)
+            print(f"Rotating {face} clockwise")
             self.cube.rotate_face(face)
         self.cube_renderer.draw_cube(self.cube.get_state())
 

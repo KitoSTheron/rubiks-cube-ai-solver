@@ -41,12 +41,8 @@ class Interaction:
     def handle_release(self, event):
         self.dragging = False
         
-        # If the drag distance is small, treat it as a click on a face
-        if self.drag_distance < 5:
-            self.handle_face_click(self.start_x, self.start_y)
             
     def handle_face_click(self, x, y):
-        """Determine which face was clicked and rotate it"""
         # Get the face and direction from renderer based on screen coordinates
         face_info = self.cube_renderer.get_face_at_position(x, y)
         if face_info:
@@ -65,13 +61,13 @@ class Interaction:
         # This would be called when the user makes a move on the cube
         self.cube_renderer.draw_cube(self.cube.get_state())
         
-    def handle_swipe(self, event, direction):
-        """Handle swipe gestures for face rotation"""
-        face_info = self.cube_renderer.get_face_for_swipe(event.x, event.y, direction)
-        if face_info:
-            face, clockwise = face_info
-            if clockwise:
-                self.cube.rotate_face(face, 'clockwise')
-            else:
-                self.cube.rotate_face(face, 'counterclockwise')
-            self.update_cube_state()
+    # def handle_swipe(self, event, direction):
+    #     """Handle swipe gestures for face rotation"""
+    #     face_info = self.cube_renderer.get_face_for_swipe(event.x, event.y, direction)
+    #     if face_info:
+    #         face, clockwise = face_info
+    #         if clockwise:
+    #             self.cube.rotate_face(face, 'clockwise')
+    #         else:
+    #             self.cube.rotate_face(face, 'counterclockwise')
+    #         self.update_cube_state()
