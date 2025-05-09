@@ -1,18 +1,9 @@
-# main.py
-
-import tkinter as tk
-import sys
-import os
-
-# Add the project root to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.gui.main_window import MainWindow
+from controller.app_controller import AppController
 
 def main():
-    root = tk.Tk()
-    app = MainWindow(root)
-    root.mainloop()
+    """Application entry point"""
+    app = AppController()
+    app.run()
 
 if __name__ == "__main__":
     main()
