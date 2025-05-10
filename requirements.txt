@@ -1,2 +1,2 @@
-tkinter
-numpy
+tensorflow>=2.0.0
+numpy>=1.19.0

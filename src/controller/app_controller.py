@@ -69,10 +69,42 @@ class AppController:
         self.update_view()
     
     def solve_cube(self):
-        """Solve the cube"""
-        # This would be implemented later
-        print("Solve cube requested")
-        # After solving, update the view
+        """Solve the cube using reinforcement learning"""
+        print("Starting Rubik's Cube solver with reinforcement learning...")
+        
+        # Import the RL solver
+        from solver.rl_solver import RLCubeSolver
+        
+        try:
+            # Initialize the solver with the current cube state
+            solver = RLCubeSolver()
+            
+            # Get the solution moves
+            solution_moves = solver.solve(self.model.cube)
+            
+            # Check if a solution was found
+            if not solution_moves:
+                print("No solution found or maximum steps reached")
+                return
+            
+            print(f"Solution found with {len(solution_moves)} moves")
+            
+            # Apply solution moves
+            for move in solution_moves:
+                face, direction = move
+                print(f"Applying move: {face} {direction}")
+                self.model.rotate_face(face, direction)
+                # Optional: Add a small delay between moves to visualize the solution
+                import time
+                time.sleep(0.5)
+                self.update_view()
+            
+            print("Cube solved successfully!")
+            
+        except Exception as e:
+            print(f"Error solving cube: {str(e)}")
+        
+        # Update the view after solving attempt
         self.update_view()
     
     def update_view(self):
