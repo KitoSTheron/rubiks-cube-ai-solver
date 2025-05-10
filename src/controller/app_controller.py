@@ -69,33 +69,34 @@ class AppController:
         # Update the view after scrambling
         self.update_view()
     
-    def solve_cube(self):
-        """Solve the cube using reinforcement learning with real-time visualization"""
-        print("Starting Rubik's Cube solver with reinforcement learning...")
+    def solve_cube(self, max_runtime=300):
+        """
+        Solve the cube using reinforcement learning with real-time visualization
+        
+        Args:
+            max_runtime: Maximum runtime in seconds (default: 300s/5min)
+        """
+        print(f"Starting Rubik's Cube solver with {max_runtime}s maximum runtime...")
         
         # Import the RL solver
         from solver.rl_solver import RLCubeSolver
         import threading
-        
-        def update_ui():
-            """Update the UI from the main thread"""
-            self.update_view()
-            self.view.root.update_idletasks()
         
         def solve_thread():
             try:
                 # Initialize the solver with the current cube state
                 solver = RLCubeSolver()
                 
-                # Use only the standard solve method - don't pass the ui_callback
-                solution_moves = solver.solve(self.model.cube, controller=self)
-                
-                # Final update when done
-                self.view.root.after(0, update_ui)
+                # Use solve method with specified max_runtime
+                solution_moves = solver.solve(
+                    self.model.cube, 
+                    controller=self, 
+                    max_runtime=max_runtime
+                )
                 
                 # Check if a solution was found
                 if not solution_moves:
-                    print("No solution found or maximum steps reached")
+                    print("No solution found or maximum steps/time reached")
                     return
                 
                 print(f"Solution found with {len(solution_moves)} moves")
@@ -110,47 +111,6 @@ class AppController:
         solver_thread = threading.Thread(target=solve_thread)
         solver_thread.daemon = True
         solver_thread.start()
-    
-    def process_next_solving_step(self):
-        """Process one step of the solving algorithm, then schedule the next step"""
-        if self.current_step >= self.max_steps or self.solver._is_solved(self.current_state):
-            if self.solver._is_solved(self.current_state):
-                print(f"Solution found in {self.current_step} steps!")
-            else:
-                print(f"Maximum steps reached without solution.")
-            return
-        
-        # Perform one step of the solving process
-        # This is a simplified version - you'll need to adapt the complex logic from the solver
-        action_scores = []
-        for action in self.solver.actions:
-            face, direction = action
-            new_state = self.solver._apply_action(self.current_state, face, direction)
-            score = self.solver._evaluate_state(new_state)
-            action_scores.append((action, new_state, score))
-        
-        # Sort by score and select the best action
-        action_scores.sort(key=lambda x: x[2], reverse=True)
-        best_action, best_state, best_score = action_scores[0]
-        face, direction = best_action
-        
-        # Apply the action
-        self.model.cube = copy.deepcopy(self.current_state)
-        self.model.rotate_face(face, direction)
-        self.update_view()
-        
-        # Update state
-        self.current_state = best_state
-        self.solution_moves.append(best_action)
-        self.current_step += 1
-        
-        # Update best state if needed
-        if best_score > self.best_score_overall:
-            self.best_score_overall = best_score
-            self.best_state_overall = copy.deepcopy(self.current_state)
-        
-        # Schedule the next step with a delay
-        self.view.root.after(200, self.process_next_solving_step)
     
     def update_view(self):
         """Update the view with the current cube state"""

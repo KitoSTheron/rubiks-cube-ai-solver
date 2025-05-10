@@ -125,8 +125,22 @@ class MainWindow:
         scramble_btn = ttk.Button(utility_frame, text="Scramble", command=self.controller.scramble_cube)
         scramble_btn.pack(side=tk.LEFT, padx=10)
         
-        solve_btn = ttk.Button(utility_frame, text="Solve", command=self.controller.solve_cube)
-        solve_btn.pack(side=tk.LEFT, padx=10)
+        # Add runtime configuration and custom solve button
+        runtime_frame = ttk.Frame(controls_frame)
+        runtime_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(runtime_frame, text="Max Runtime (sec):").pack(side=tk.LEFT)
+        self.runtime_var = tk.StringVar(value="300")  # Default 5 minutes
+        runtime_entry = ttk.Entry(runtime_frame, textvariable=self.runtime_var, width=5)
+        runtime_entry.pack(side=tk.LEFT, padx=5)
+
+        # Create a single solve button that uses the runtime from the entry field
+        solve_button = ttk.Button(
+            controls_frame, 
+            text="Solve Cube", 
+            command=lambda: self.controller.solve_cube(max_runtime=int(self.runtime_var.get()))
+        )
+        solve_button.pack(fill=tk.X, padx=10, pady=5)
     
     def run(self):
         """Run the main event loop"""

@@ -24,7 +24,10 @@ class RLCubeSolver:
             for direction in ['clockwise', 'counterclockwise', 'double']:
                 self.actions.append((face, direction))
         
-        self.max_steps = 100  # Maximum number of steps to attempt
+        # Set default parameters
+        self.max_steps = 100000  # Increased from 100 to 1000
+        self.default_max_runtime = 300  # 5 minutes in seconds
+        
         # Now load the model after actions is defined
         self.model = self._load_or_create_model(model_path)
     
@@ -445,9 +448,25 @@ class RLCubeSolver:
         breaker = random.choice(breakers)
         return breaker
 
-    def solve(self, cube_state, controller=None):
-        """Solve the cube using reinforcement learning with real-time visualization"""
+    def solve(self, cube_state, controller=None, max_runtime=None):
+        """
+        Solve the cube using reinforcement learning with real-time visualization
+        
+        Args:
+            cube_state: The current cube state to solve
+            controller: Optional controller for visualization updates
+            max_runtime: Maximum runtime in seconds (default: 300s/5min)
+        
+        Returns:
+            List of solution moves
+        """
         print("Attempting to solve cube...")
+        
+        # Set max runtime
+        import time
+        start_time = time.time()
+        if max_runtime is None:
+            max_runtime = self.default_max_runtime
         
         # Check for None input
         if cube_state is None:
@@ -465,7 +484,7 @@ class RLCubeSolver:
             
             # Initialize white cross tracking
             best_white_cross = self._evaluate_white_cross(current_state)
-            best_cross_state = copy.deepcopy(current_state)  # Initialize with current state
+            best_cross_state = copy.deepcopy(current_state)
             
             # Initialize additional tracking variables
             move_history = []
@@ -479,56 +498,55 @@ class RLCubeSolver:
             visited_states.add(self._get_state_hash(current_state))
             
             for step in range(self.max_steps):
-                print(f"Step {step + 1}/{self.max_steps}")
+                # Check if time limit exceeded
+                current_time = time.time()
+                elapsed_time = current_time - start_time
+                if elapsed_time > max_runtime:
+                    print(f"Time limit of {max_runtime} seconds reached. Stopping.")
+                    return solution_moves
+                    
+                print(f"Step {step + 1}/{self.max_steps} (Elapsed time: {elapsed_time:.1f}s)")
                 
                 # Safety check for None state
                 if current_state is None:
                     print("ERROR: Current state is None. Using best overall state.")
                     current_state = copy.deepcopy(best_state_overall)
-                    # If even that is None, use the original cube state
                     if current_state is None:
-                        print("ERROR: Best overall state is also None. Using original state.")
-                        current_state = copy.deepcopy(cube_state)
-                        # If that fails too, we can't continue
-                        if current_state is None:
-                            print("FATAL ERROR: All states are None. Cannot continue.")
-                            return solution_moves
+                        return solution_moves
                 
                 # Evaluate current state
                 current_score = self._evaluate_state(current_state)
-                
-                # Check for white cross progress
                 white_cross_score = self._evaluate_white_cross(current_state)
+                
+                # Update best white cross if improved
                 if white_cross_score > best_white_cross:
                     best_white_cross = white_cross_score
-                    # IMPORTANT: Only update best_cross_state if it's a valid state
                     if current_state is not None:
                         best_cross_state = copy.deepcopy(current_state)
                         print(f"  Improved white cross! Score: {white_cross_score}")
                 
-                # If we've lost significant white cross progress, revert
+                # Check if we've lost significant white cross progress
                 if (best_white_cross > 50 and 
                     white_cross_score < best_white_cross * 0.6 and
                     best_cross_state is not None):
                     print(f"  Lost white cross progress! Reverting to best known cross state")
-                    # Revert logic (already implemented)
                     try:
                         current_state = copy.deepcopy(best_cross_state)
-                        if current_state is None:
-                            raise ValueError("Copied state is None")
-                        _ = current_state[0][0][0]
+                        
+                        # Critical: Force UI update when reverting
+                        if controller:
+                            controller.model.cube = copy.deepcopy(current_state)
+                            # Use different approach to ensure UI updates
+                            if hasattr(controller.view, 'root'):
+                                controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
+                                controller.view.root.update_idletasks()
+                                time.sleep(0.1)  # Brief pause
                     except Exception as e:
-                        print(f"ERROR when reverting to best cross state: {str(e)}")
-                        print("Using best overall state instead")
-                        current_state = copy.deepcopy(best_state_overall)
-                        if current_state is None:
-                            print("ERROR: Best overall state is also None. Using original state.")
-                            current_state = copy.deepcopy(cube_state)
-                    
+                        print(f"Error reverting: {str(e)}")
+                        
                     moves_since_improvement = 0
                     continue
                 
-                # ACTION SELECTION AND APPLICATION
                 # Try each possible action
                 action_scores = []
                 for action in self.actions:
@@ -564,13 +582,11 @@ class RLCubeSolver:
                         
                         # Update visualization if controller provided
                         if controller:
-                            try:
-                                controller.model.cube = copy.deepcopy(current_state)
-                                controller.view.root.after(0, controller.update_view)
-                                import time
-                                time.sleep(0.2)
-                            except Exception as e:
-                                print(f"Error updating visualization: {str(e)}")
+                            controller.model.cube = copy.deepcopy(current_state)
+                            # Use after method to ensure updates happen on main thread
+                            controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
+                            controller.view.root.update_idletasks()
+                            time.sleep(0.05)
                 else:
                     # Select action based on exploration probability
                     if random.random() < exploration_probability:
@@ -598,17 +614,23 @@ class RLCubeSolver:
                     
                     # Update visualization in real-time if controller is provided
                     if controller:
-                        try:
-                            controller.model.cube = copy.deepcopy(current_state)
-                            controller.view.root.after(0, controller.update_view)
-                            import time
-                            time.sleep(0.2)
-                        except Exception as e:
-                            print(f"Error updating visualization: {str(e)}")
+                        # Update model
+                        controller.model.cube = copy.deepcopy(current_state)
+                        # Schedule update on main thread
+                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
+                        # Force processing of scheduled tasks
+                        controller.view.root.update_idletasks()
+                        time.sleep(0.01)
                 
                 # Check if we've reached a solution
                 if self._is_solved(current_state):
                     print(f"Solution found in {step + 1} steps!")
+                    
+                    # Final update to show solved state
+                    if controller:
+                        controller.model.cube = copy.deepcopy(current_state)
+                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
+                    
                     return solution_moves
                 
                 # Update best overall state if we've found a better one
@@ -621,15 +643,20 @@ class RLCubeSolver:
                     steps_without_progress += 1
                 
                 # If we haven't made progress for too long, adjust exploration
-                if steps_without_progress > 10:
+                if steps_without_progress > 15:
                     exploration_probability = min(0.3, exploration_probability * 1.2)
                     steps_without_progress = 0
                     local_optima_counter += 1
                     print(f"  No progress for several steps, increasing exploration to {exploration_probability:.2f}")
+                    
+                    # Force an update before continuing
+                    if controller:
+                        controller.view.root.update()
+                        time.sleep(0.1)
             
             print(f"Maximum steps reached without solution.")
             return solution_moves
-        
+            
         except Exception as e:
             print(f"Error in solve method: {str(e)}")
             import traceback
