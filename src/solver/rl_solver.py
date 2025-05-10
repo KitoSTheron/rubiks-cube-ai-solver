@@ -166,303 +166,501 @@ class RLCubeSolver:
             List of algorithm tuples (name, moves)
         """
         algorithms = [
+            # Basic algorithms
             ("R Move", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise")]),
-            ("Sledgehammer", [("R", "clockwise"), ("F", "clockwise"), ("R", "counterclockwise"), ("F", "counterclockwise")]),
-            ("L Move", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise")] * 2),
-            # Add more common algorithms here
+            ("L Move", [("L", "clockwise"), ("U", "clockwise"), ("L", "counterclockwise"), ("U", "counterclockwise")]),
+            ("F Move", [("F", "clockwise"), ("U", "clockwise"), ("F", "counterclockwise"), ("U", "counterclockwise")]),
+            ("B Move", [("B", "clockwise"), ("U", "clockwise"), ("B", "counterclockwise"), ("U", "counterclockwise")]),
+            ("U Move", [("U", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise")]),
+            ("D Move", [("D", "clockwise"), ("L", "clockwise"), ("D", "counterclockwise"), ("L", "counterclockwise")]),
+
+            # OLL Algorithms (Orient Last Layer)
+            ("OLL - Dot Case", [("F", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("F", "counterclockwise")]),
+            ("OLL - T Shape", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("F", "clockwise"), ("R", "F", "counterclockwise")]),
+            ("OLL - L Shape", [("F", "clockwise"), ("R", "U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("F", "counterclockwise")]),
+            ("OLL - Line", [("F", "clockwise"), ("R", "U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("F", "counterclockwise")]),
+            ("OLL - Cross", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")]),
+
+            # PLL Algorithms (Permute Last Layer)
+            ("PLL - U Perm", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise")]),
+            ("PLL - H Perm", [("M", "clockwise"), ("U", "clockwise"), ("M", "clockwise"), ("U", "clockwise"), ("M", "clockwise"), ("U", "clockwise"), ("M", "clockwise"), ("U", "clockwise")]),
+            ("PLL - Z Perm", [("M", "clockwise"), ("U", "clockwise"), ("M", "clockwise"), ("U", "counterclockwise"), ("M", "clockwise"), ("U", "clockwise"), ("M", "clockwise"), ("U", "counterclockwise")]),
+            ("PLL - A Perm", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("F", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("F", "counterclockwise")]),
+            ("PLL - E Perm", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("R", "clockwise"), ("F", "clockwise"), ("R", "counterclockwise"), ("F", "counterclockwise")]),
+
+            # F2L Algorithms (First Two Layers)
+            ("F2L - Pair Insert", [("U", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("F", "clockwise"), ("U", "clockwise"), ("F", "counterclockwise")]),
+            ("F2L - Edge Flip", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")]),
+            ("F2L - Corner Insert", [("U", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("F", "clockwise"), ("U", "counterclockwise"), ("F", "counterclockwise")]),
+
+            # Equivalent algorithms for different orientations
+            ("R Move (Front Facing)", [("F", "clockwise"), ("U", "clockwise"), ("F", "counterclockwise"), ("U", "counterclockwise")]),
+            ("R Move (Left Facing)", [("L", "clockwise"), ("U", "clockwise"), ("L", "counterclockwise"), ("U", "counterclockwise")]),
+            ("R Move (Back Facing)", [("B", "clockwise"), ("U", "clockwise"), ("B", "counterclockwise"), ("U", "counterclockwise")]),
+            ("R Move (Right Facing)", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise")]),
+
+            ("Sledgehammer (Front Facing)", [("F", "clockwise"), ("R", "clockwise"), ("F", "counterclockwise"), ("R", "counterclockwise")]),
+            ("Sledgehammer (Left Facing)", [("L", "clockwise"), ("F", "clockwise"), ("L", "counterclockwise"), ("F", "counterclockwise")]),
+            ("Sledgehammer (Back Facing)", [("B", "clockwise"), ("L", "clockwise"), ("B", "counterclockwise"), ("L", "counterclockwise")]),
+            ("Sledgehammer (Right Facing)", [("R", "clockwise"), ("B", "clockwise"), ("R", "counterclockwise"), ("B", "counterclockwise")]),
+
+            # Additional algorithms for advanced solving
+            ("OLL - Fish Shape", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")]),
+            ("PLL - T Perm", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("F", "clockwise"), ("R", "F", "counterclockwise")]),
+            ("PLL - J Perm", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("F", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise"), ("F", "counterclockwise")]),
         ]
         return algorithms
 
     def _evaluate_state(self, cube_state):
-        """Evaluate how close the cube is to being solved with a more flexible approach"""
+        """Improved evaluation with more progressive scoring and memory of past good states"""
+        # Add this check at the beginning of the method
+        if cube_state is None:
+            print("WARNING: Received None cube state in _evaluate_state")
+            return -float('inf')  # Return very negative score for None states
+        
         score = 0
         
-        # --- Basic scoring for all stickers ---
-        # For each face, give points for matching the center
-        for face_idx in range(len(cube_state)):
-            # Get the center color
-            center_color = cube_state[face_idx][1][1][0]
-            
-            # Count stickers matching the center
-            for row in range(3):
-                for col in range(3):
-                    if cube_state[face_idx][row][col][0] == center_color:
-                        score += 1
-        
-        # --- Bonus for complete faces ---
-        for face_idx in range(len(cube_state)):
-            center_color = cube_state[face_idx][1][1][0]
-            face_complete = True
-            
-            for row in range(3):
-                for col in range(3):
-                    if cube_state[face_idx][row][col][0] != center_color:
-                        face_complete = False
-                        break
-                if not face_complete:
-                    break
-            
-            if face_complete:
-                score += 15  # Significant bonus for a complete face
-        
-        # --- WHITE CROSS DETECTION (more flexible) ---
+        # --- WHITE CROSS DETECTION with HIGHER RETENTION VALUE ---
         bottom_face = 5  # White face
         front_face = 1   # Blue face
         right_face = 2   # Red face
         left_face = 3    # Orange face
         back_face = 4    # Green face
+        top_face = 0     # Yellow face
         
         # Check white center
-        if cube_state[bottom_face][1][1][0] == 'w':
+        if cube_state is not None and cube_state[bottom_face][1][1][0] == 'w':
             score += 5
             
-            # Check white edges, giving partial credit
-            white_edge_positions = [(0, 1), (1, 0), (1, 2), (2, 1)]  # top, left, right, bottom edges
+            # Check white edges with MUCH higher values
+            white_edge_positions = [(0, 1), (1, 0), (1, 2), (2, 1)]
             adjacent_faces = [front_face, left_face, right_face, back_face]
-            adjacent_pos = [(2, 1), (2, 1), (2, 1), (2, 1)]  # positions on adjacent faces
+            adjacent_pos = [(2, 1), (2, 1), (2, 1), (2, 1)]
+            expected_colors = ['b', 'o', 'r', 'g']
             
             white_edges_correct = 0
+            
+            # Track each correct edge piece separately with high value
+            for i, pos in enumerate(white_edge_positions):
+                row, col = pos
+                adj_row, adj_col = adjacent_pos[i]
+                adj_face = adjacent_faces[i]
+                
+                # White sticker in the correct position and orientation
+                if cube_state[bottom_face][row][col][0] == 'w' and cube_state[adj_face][adj_row][adj_col][0] == expected_colors[i]:
+                    score += 25  # Higher value for correct position and orientation
+                    white_edges_correct += 1
+            
+            # Bonus for complete white cross
+            if white_edges_correct == 4:
+                score += 50  # Higher bonus (was 10)
+                
+                # Evaluate F2L (First Two Layers)
+                f2l_edges_positions = [
+                    (front_face, (1, 2), right_face, (1, 0)),
+                    (front_face, (1, 0), left_face, (1, 2)),
+                    (back_face, (1, 2), left_face, (1, 0)),
+                    (back_face, (1, 0), right_face, (1, 2))
+                ]
+                expected_f2l_colors = [
+                    ['b', 'r'],
+                    ['b', 'o'],
+                    ['g', 'o'],
+                    ['g', 'r']
+                ]
+
+                f2l_edges_correct = 0
+
+                for i, (face1, pos1, face2, pos2) in enumerate(f2l_edges_positions):
+                    expected_colors = expected_f2l_colors[i]
+
+                    # Check if the edge piece is in the correct position
+                    if cube_state[face1][pos1[0]][pos1[1]][0] == expected_colors[0] and \
+                       cube_state[face2][pos2[0]][pos2[1]][0] == expected_colors[1]:
+                        score += 40  # Higher value for correct F2L edge position
+                        f2l_edges_correct += 1
+
+                # Bonus for completing F2L
+                if f2l_edges_correct == 4:
+                    score += 100  # Higher bonus for completing F2L
+
+                # Evaluate OLL (Orient Last Layer)
+                top_face_colors = [sticker[0] for row in cube_state[top_face] for sticker in row]
+                if all(color == 'y' for color in top_face_colors):
+                    score += 150  # Bonus for completing OLL
+
+                # Evaluate PLL (Permute Last Layer)
+                if self._is_solved(cube_state):
+                    score += 200  # Bonus for solving the cube
+        
+        return score
+    
+    def _evaluate_white_cross(self, cube_state):
+        """Evaluate just the white cross"""
+        score = 0
+        bottom_face = 5
+        front_face = 1
+        right_face = 2
+        left_face = 3
+        back_face = 4
+        
+        # Only score if white center is correct
+        if cube_state[bottom_face][1][1][0] == 'w':
+            white_edge_positions = [(0, 1), (1, 0), (1, 2), (2, 1)]
+            adjacent_faces = [front_face, left_face, right_face, back_face]
+            adjacent_pos = [(2, 1), (2, 1), (2, 1), (2, 1)]
+            expected_colors = ['b', 'o', 'r', 'g']
             
             for i, pos in enumerate(white_edge_positions):
                 row, col = pos
                 adj_row, adj_col = adjacent_pos[i]
                 adj_face = adjacent_faces[i]
                 
-                # Give points for having white on the bottom face
-                if cube_state[bottom_face][row][col][0] == 'w':
-                    score += 2
-                    
-                    # Give additional points for correct adjacent color
-                    if cube_state[adj_face][adj_row][adj_col][0] == ['b', 'o', 'r', 'g'][i]:
-                        score += 3
-                        white_edges_correct += 1
-            
-            # Bonus for complete white cross
-            if white_edges_correct == 4:
-                score += 10
-                
-                # --- F2L DETECTION (First Two Layers) ---
-                # Check white corners
-                corner_positions = [(0, 0), (0, 2), (2, 0), (2, 2)]  # corners
-                white_corners_correct = 0
-                
-                for corner_pos in corner_positions:
-                    row, col = corner_pos
-                    if cube_state[bottom_face][row][col][0] == 'w':
-                        score += 2
-                        # We'd need to check adjacent faces for complete correctness
-                        # This is simplified for now
-                
-                # Check middle layer edges (simplified)
-                middle_edges_correct = 0
-                # Front-left, front-right, back-left, back-right
-                middle_positions = [(front_face, 1, 0), (front_face, 1, 2), 
-                                    (back_face, 1, 2), (back_face, 1, 0)]
-                adjacent_middle = [(left_face, 1, 2), (right_face, 1, 0),
-                                 (left_face, 1, 0), (right_face, 1, 2)]
-                
-                for i in range(4):
-                    face, row, col = middle_positions[i]
-                    adj_face, adj_row, adj_col = adjacent_middle[i]
-                    
-                    # Give points for matching the center color
-                    if cube_state[face][row][col][0] == cube_state[face][1][1][0]:
-                        score += 2
-                        
-                        # Additional points if adjacent color matches too
-                        if cube_state[adj_face][adj_row][adj_col][0] == cube_state[adj_face][1][1][0]:
-                            score += 3
-                            middle_edges_correct += 1
-                
-                # Bonus for complete F2L
-                if middle_edges_correct == 4:
-                    score += 15
-                    
-                    # --- OLL DETECTION (Orient Last Layer) ---
-                    top_face = 0  # Yellow face
-                    yellow_count = 0
-                    
-                    for row in range(3):
-                        for col in range(3):
-                            if cube_state[top_face][row][col][0] == 'y':
-                                yellow_count += 1
-                                score += 1
-                    
-                    # Bonus for complete yellow face
-                    if yellow_count == 9:
-                        score += 20
-                        
-                        # --- PLL DETECTION (Permute Last Layer) ---
-                        # Check if the top layer edges are aligned with their centers
-                        top_edge_positions = [(0, 1), (1, 0), (1, 2), (2, 1)]  # top, left, right, bottom
-                        adjacent_top_faces = [back_face, left_face, right_face, front_face]
-                        adjacent_top_pos = [(0, 1), (0, 1), (0, 1), (0, 1)]
-                        
-                        top_edges_correct = 0
-                        
-                        for i, pos in enumerate(top_edge_positions):
-                            adj_face = adjacent_top_faces[i]
-                            adj_row, adj_col = adjacent_top_pos[i]
-                            
-                            if cube_state[adj_face][adj_row][adj_col][0] == cube_state[adj_face][1][1][0]:
-                                score += 2
-                                top_edges_correct += 1
-                        
-                        # Bonus for complete PLL edges
-                        if top_edges_correct == 4:
-                            score += 15
+                if cube_state[bottom_face][row][col][0] == 'w' and cube_state[adj_face][adj_row][adj_col][0] == expected_colors[i]:
+                        score += 25
         
         return score
-    
-    def solve(self, cube_state):
-        """Solve the cube with a better balance of exploration and exploitation"""
+
+    def _get_state_hash(self, cube_state):
+        """
+        Convert a cube state to a hashable representation
+        for detecting repeated states
+        """
+        # Simple approach: just join the color codes
+        hash_str = ""
+        for face in cube_state:
+            for row in face:
+                for sticker in row:
+                    hash_str += sticker[0]
+        return hash_str
+
+    def _calculate_repeat_penalty(self, move_history, move):
+        """
+        Calculate a penalty score for repeating recent moves or patterns
+        
+        Args:
+            move_history: List of previous moves
+            move: The move being considered (face, direction)
+        
+        Returns:
+            A penalty score (higher for repetitive moves)
+        """
+        face, direction = move
+        penalty = 0
+        
+        # Check for exact repeats
+        for i, prev_move in enumerate(reversed(move_history)):
+            prev_face, prev_direction = prev_move
+            # Penalty for repeating the most recent moves is higher
+            if face == prev_face and direction == prev_direction:
+                penalty += 50 / (i + 1)
+        
+        # Higher penalty for move that undoes the previous move
+        if len(move_history) > 0:
+            last_face, last_direction = move_history[-1]
+            if face == last_face:
+                if (direction == "clockwise" and last_direction == "counterclockwise") or \
+                   (direction == "counterclockwise" and last_direction == "clockwise") or \
+                   (direction == "double" and last_direction == "double"):
+                    penalty += 100
+        
+        # Check for repeating patterns (like R U R' U')
+        if len(move_history) >= 4:
+            # Check if we're repeating a 2-move pattern
+            if move == move_history[-2] and move_history[-1] == move_history[-3]:
+                penalty += 75
+                
+            # Check if we're repeating a 4-move pattern
+            if len(move_history) >= 8:
+                last_four = move_history[-4:]
+                prev_four = move_history[-8:-4]
+                if last_four == prev_four:
+                    penalty += 100
+        
+        return penalty
+
+    def _detect_loop(self, move_history):
+        """
+        Detect if we're stuck in a loop of repeated moves
+        
+        Args:
+            move_history: List of previous moves
+            
+        Returns:
+            Boolean indicating if a loop is detected
+        """
+        if len(move_history) < 6:
+            return False
+        
+        # Check for 2-move loop like (R U R U R U...)
+        if len(move_history) >= 6:
+            if move_history[-1] == move_history[-3] == move_history[-5] and \
+               move_history[-2] == move_history[-4] == move_history[-6]:
+                return True
+        
+        # Check for 3-move loop
+        if len(move_history) >= 9:
+            if move_history[-1] == move_history[-4] == move_history[-7] and \
+               move_history[-2] == move_history[-5] == move_history[-8] and \
+               move_history[-3] == move_history[-6] == move_history[-9]:
+                return True
+        
+        # Check for 4-move loop
+        if len(move_history) >= 12:
+            if move_history[-1:-5:-1] == move_history[-5:-9:-1] == move_history[-9:-13:-1]:
+                return True
+        
+        return False
+
+    def _get_inverse_move(self, face, direction):
+        """Get the inverse of a move"""
+        if direction == "clockwise":
+            return (face, "counterclockwise")
+        elif direction == "counterclockwise":
+            return (face, "clockwise")
+        else:  # double
+            return (face, "double")  # Double move is its own inverse
+
+    def _advanced_loop_breaker(self, current_state):
+        """Apply a sequence of moves designed to escape a loop while preserving progress"""
+        # Get the current progress status
+        cross_score = self._evaluate_white_cross(current_state)
+        
+        # Choose breaker based on current progress
+        if cross_score >= 75:  # White cross nearly complete
+            # Use gentler algorithms that don't destroy the cross
+            breakers = [
+                [("U", "clockwise"), ("U", "clockwise")],
+                [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")],
+                [("F", "clockwise"), ("U", "clockwise"), ("F", "counterclockwise")]
+            ]
+        else:
+            # More disruptive breakers for early stages
+            breakers = [
+                [("U", "double"), ("R", "double"), ("F", "double")],
+                [("L", "clockwise"), ("U", "double"), ("L", "counterclockwise")],
+                [("R", "clockwise"), ("D", "clockwise"), ("R", "counterclockwise")]
+            ]
+        
+        breaker = random.choice(breakers)
+        return breaker
+
+    def solve(self, cube_state, controller=None):
+        """Solve the cube using reinforcement learning with real-time visualization"""
         print("Attempting to solve cube...")
         
-        # If the cube is already solved, return empty solution
-        if self._is_solved(cube_state):
-            print("Cube is already solved!")
+        # Check for None input
+        if cube_state is None:
+            print("ERROR: Cannot solve a None cube state")
             return []
         
-        # Deep copy to avoid modifying the original
-        current_state = copy.deepcopy(cube_state)
-        solution_moves = []
-        
-        # Track the best state we've seen
-        best_score_overall = self._evaluate_state(current_state)
-        best_state_overall = copy.deepcopy(current_state)
-        
-        # Parameters with better tuning
-        exploration_probability = 0.1  # Lower initial exploration probability
-        local_optima_counter = 0       
-        local_optima_threshold = 5     # Detect local optima sooner
-        max_steps_without_progress = 20 # Allow fewer non-improving steps
-        steps_without_progress = 0
-        
-        # Get common algorithms
-        common_algorithms = self._get_common_algorithms()
-        
-        for step in range(self.max_steps):
-            print(f"Step {step + 1}/{self.max_steps}")
-            current_score = self._evaluate_state(current_state)
+        try:
+            # Deep copy to avoid modifying the original
+            current_state = copy.deepcopy(cube_state)
+            solution_moves = []
             
-            # Track if we found a better state in this iteration
-            found_better_state = False
+            # Initialize best states
+            best_score_overall = self._evaluate_state(current_state)
+            best_state_overall = copy.deepcopy(current_state)
             
-            # If we're potentially stuck in local optima, slightly increase exploration
-            if local_optima_counter > local_optima_threshold:
-                exploration_probability = min(0.3, exploration_probability * 1.2)  # More conservative increase
-                print(f"  Increasing exploration to {exploration_probability:.2f}")
-                local_optima_counter = 0
+            # Initialize white cross tracking
+            best_white_cross = self._evaluate_white_cross(current_state)
+            best_cross_state = copy.deepcopy(current_state)  # Initialize with current state
             
-            # Try each possible action
-            action_scores = []
-            for action in self.actions:
-                face, direction = action
+            # Initialize additional tracking variables
+            move_history = []
+            history_limit = 10
+            steps_without_progress = 0
+            local_optima_counter = 0
+            visited_states = set()
+            exploration_probability = 0.1
+
+            # Add state to visited
+            visited_states.add(self._get_state_hash(current_state))
+            
+            for step in range(self.max_steps):
+                print(f"Step {step + 1}/{self.max_steps}")
                 
-                # Apply the action and evaluate the resulting state
-                new_state = self._apply_action(current_state, face, direction)
-                score = self._evaluate_state(new_state)
-                action_scores.append((action, new_state, score))
-            
-            # Sort actions by score (best first)
-            action_scores.sort(key=lambda x: x[2], reverse=True)
-            
-            # With 70% probability, just take the best action (more exploitation)
-            if random.random() > exploration_probability:
-                # Choose the best action
-                best_action, best_state, best_score = action_scores[0]
-                print(f"  Taking best action: {best_action[0]} {best_action[1]} (score: {best_score})")
-            else:
-                # Weighted random selection based on scores (smarter exploration)
-                max_score = max(score for _, _, score in action_scores)
-                min_score = min(score for _, _, score in action_scores)
-                score_range = max(1, max_score - min_score)
+                # Safety check for None state
+                if current_state is None:
+                    print("ERROR: Current state is None. Using best overall state.")
+                    current_state = copy.deepcopy(best_state_overall)
+                    # If even that is None, use the original cube state
+                    if current_state is None:
+                        print("ERROR: Best overall state is also None. Using original state.")
+                        current_state = copy.deepcopy(cube_state)
+                        # If that fails too, we can't continue
+                        if current_state is None:
+                            print("FATAL ERROR: All states are None. Cannot continue.")
+                            return solution_moves
                 
-                # More aggressive weighting - favor higher scores more strongly
-                weights = [((score - min_score) / score_range) ** 3 + 0.01 for _, _, score in action_scores]
-                total_weight = sum(weights)
-                probs = [w / total_weight for w in weights]
+                # Evaluate current state
+                current_score = self._evaluate_state(current_state)
                 
-                chosen_idx = np.random.choice(len(action_scores), p=probs)
-                best_action, best_state, best_score = action_scores[chosen_idx]
-                print(f"  Exploring: {best_action[0]} {best_action[1]} (score: {best_score}, rank: {chosen_idx+1}/{len(action_scores)})")
-            
-            # Apply the selected action
-            face, direction = best_action
-            current_state = best_state
-            solution_moves.append(best_action)
-            
-            # Check if we've reached a solution
-            if self._is_solved(current_state):
-                print(f"Solution found in {step + 1} steps!")
-                return solution_moves
-            
-            # Check if we've found a better overall state
-            if best_score > best_score_overall:
-                best_score_overall = best_score
-                best_state_overall = copy.deepcopy(current_state)
-                steps_without_progress = 0
-                found_better_state = True
-                print(f"  Found better state! Score: {best_score}")
-            else:
-                steps_without_progress += 1
-            
-            # Always save any state that matches the best score we've seen
-            if best_score == best_score_overall:
-                best_state_overall = copy.deepcopy(current_state)
-                steps_without_progress = max(0, steps_without_progress - 1)  # Reduce non-progress counter
-            
-            # If we haven't made progress for too long, revert to the best known state
-            if steps_without_progress > max_steps_without_progress:
-                print(f"  No progress for {steps_without_progress} steps, reverting to best known state")
-                current_state = copy.deepcopy(best_state_overall)
-                steps_without_progress = 0
-                # Reset exploration to be lower after reverting
-                exploration_probability = max(0.05, exploration_probability * 0.7)
-            
-            # Try common algorithms less frequently and only when needed
-            if (local_optima_counter > local_optima_threshold or 
-                (step % 15 == 0 and steps_without_progress > 5)):
-                print("  Trying a common algorithm...")
-                best_algorithm_score = -float('inf')
-                best_algorithm_name = None
-                best_algorithm = None
-                best_algorithm_state = None
+                # Check for white cross progress
+                white_cross_score = self._evaluate_white_cross(current_state)
+                if white_cross_score > best_white_cross:
+                    best_white_cross = white_cross_score
+                    # IMPORTANT: Only update best_cross_state if it's a valid state
+                    if current_state is not None:
+                        best_cross_state = copy.deepcopy(current_state)
+                        print(f"  Improved white cross! Score: {white_cross_score}")
                 
-                for name, algorithm in common_algorithms:
-                    new_state = self._apply_algorithm(current_state, algorithm)
+                # If we've lost significant white cross progress, revert
+                if (best_white_cross > 50 and 
+                    white_cross_score < best_white_cross * 0.6 and
+                    best_cross_state is not None):
+                    print(f"  Lost white cross progress! Reverting to best known cross state")
+                    # Revert logic (already implemented)
+                    try:
+                        current_state = copy.deepcopy(best_cross_state)
+                        if current_state is None:
+                            raise ValueError("Copied state is None")
+                        _ = current_state[0][0][0]
+                    except Exception as e:
+                        print(f"ERROR when reverting to best cross state: {str(e)}")
+                        print("Using best overall state instead")
+                        current_state = copy.deepcopy(best_state_overall)
+                        if current_state is None:
+                            print("ERROR: Best overall state is also None. Using original state.")
+                            current_state = copy.deepcopy(cube_state)
+                    
+                    moves_since_improvement = 0
+                    continue
+                
+                # ACTION SELECTION AND APPLICATION
+                # Try each possible action
+                action_scores = []
+                for action in self.actions:
+                    face, direction = action
+                    
+                    # Apply the action and evaluate the resulting state
+                    new_state = self._apply_action(current_state, face, direction)
                     score = self._evaluate_state(new_state)
                     
-                    if score > best_algorithm_score:
-                        best_algorithm_score = score
-                        best_algorithm_name = name
-                        best_algorithm = algorithm
-                        best_algorithm_state = new_state
+                    # Calculate penalty for repeating recent moves
+                    repeat_penalty = self._calculate_repeat_penalty(move_history, (face, direction))
+                    adjusted_score = score - repeat_penalty
+                    
+                    action_scores.append((action, new_state, score, adjusted_score))
                 
-                # Only apply the algorithm if it actually improves the state or gives the best score so far
-                if best_algorithm_score > current_score or best_algorithm_score >= best_score_overall:
-                    print(f"  Applying algorithm {best_algorithm_name} (score: {best_algorithm_score})")
-                    current_state = best_algorithm_state
-                    solution_moves.extend(best_algorithm)
+                # Sort actions by adjusted score (best first)
+                action_scores.sort(key=lambda x: x[3], reverse=True)
+                
+                # Detect if we're stuck in a loop
+                is_in_loop = self._detect_loop(move_history)
+                
+                # Choose action based on exploration/exploitation strategy
+                if is_in_loop:
+                    print("  Loop detected! Applying algorithm breaker...")
+                    breaker = self._advanced_loop_breaker(current_state)
                     
-                    # Update best state if this algorithm gave us a new best score
-                    if best_algorithm_score > best_score_overall:
-                        best_score_overall = best_algorithm_score
-                        best_state_overall = copy.deepcopy(current_state)
-                        steps_without_progress = 0
-                        found_better_state = True
+                    # Apply the breaker algorithm
+                    for breaker_face, breaker_dir in breaker:
+                        temp_state = self._apply_action(current_state, breaker_face, breaker_dir) 
+                        current_state = temp_state
+                        solution_moves.append((breaker_face, breaker_dir))
+                        move_history.append((breaker_face, breaker_dir))
+                        
+                        # Update visualization if controller provided
+                        if controller:
+                            try:
+                                controller.model.cube = copy.deepcopy(current_state)
+                                controller.view.root.after(0, controller.update_view)
+                                import time
+                                time.sleep(0.2)
+                            except Exception as e:
+                                print(f"Error updating visualization: {str(e)}")
+                else:
+                    # Select action based on exploration probability
+                    if random.random() < exploration_probability:
+                        # Choose a non-optimal action for exploration
+                        if len(action_scores) > 1:
+                            chosen_idx = random.randint(1, min(5, len(action_scores)-1))
+                            best_action, best_state, best_score, _ = action_scores[chosen_idx]
+                            print(f"  Exploring: {best_action}")
+                        else:
+                            best_action, best_state, best_score, _ = action_scores[0]
+                    else:
+                        # Choose best action
+                        best_action, best_state, best_score, _ = action_scores[0]
+                        print(f"  Taking best action: {best_action}")
                     
-                    continue
+                    # Apply the selected action
+                    face, direction = best_action
+                    current_state = best_state
+                    solution_moves.append(best_action)
+                    move_history.append(best_action)
+                    
+                    # Trim move history if needed
+                    if len(move_history) > history_limit:
+                        move_history.pop(0)
+                    
+                    # Update visualization in real-time if controller is provided
+                    if controller:
+                        try:
+                            controller.model.cube = copy.deepcopy(current_state)
+                            controller.view.root.after(0, controller.update_view)
+                            import time
+                            time.sleep(0.2)
+                        except Exception as e:
+                            print(f"Error updating visualization: {str(e)}")
+                
+                # Check if we've reached a solution
+                if self._is_solved(current_state):
+                    print(f"Solution found in {step + 1} steps!")
+                    return solution_moves
+                
+                # Update best overall state if we've found a better one
+                if best_score > best_score_overall:
+                    best_score_overall = best_score
+                    best_state_overall = copy.deepcopy(current_state)
+                    steps_without_progress = 0
+                    print(f"  Found better state! Score: {best_score}")
+                else:
+                    steps_without_progress += 1
+                
+                # If we haven't made progress for too long, adjust exploration
+                if steps_without_progress > 10:
+                    exploration_probability = min(0.3, exploration_probability * 1.2)
+                    steps_without_progress = 0
+                    local_optima_counter += 1
+                    print(f"  No progress for several steps, increasing exploration to {exploration_probability:.2f}")
             
-            # Update local optima counter
-            if not found_better_state:
-                local_optima_counter += 1
-            else:
-                local_optima_counter = 0
+            print(f"Maximum steps reached without solution.")
+            return solution_moves
         
-        print(f"Maximum steps reached without solution. Found {len(solution_moves)} moves.")
-        # Return the solution that led to the best state we found
-        return solution_moves
+        except Exception as e:
+            print(f"Error in solve method: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def solve_staged(self, cube_state, controller=None):
+        """Solve the cube in stages, focusing on one goal at a time"""
+        print("Attempting staged solve...")
+        
+        # Stage 1: White Cross
+        print("Stage 1: Solving white cross")
+        cross_state = self._solve_white_cross(cube_state, controller)
+        
+        # Stage 2: White Corners (F2L corners)
+        print("Stage 2: Solving white corners")
+        corner_state = self._solve_white_corners(cross_state, controller)
+        
+        # Stage 3: Second layer edges (F2L edges)
+        print("Stage 3: Solving second layer")
+        f2l_state = self._solve_second_layer(corner_state, controller)
+        
+        # Stage 4: Yellow face (OLL)
+        print("Stage 4: Orienting last layer")
+        oll_state = self._solve_yellow_face(f2l_state, controller)
+        
+        # Stage 5: Final positioning (PLL)
+        print("Stage 5: Permuting last layer")
+        solution_state = self._solve_final_permutation(oll_state, controller)
+        
+        return solution_state
 
     def train(self, num_episodes=1000):
         """
@@ -598,4 +796,5 @@ class RLCubeSolver:
             print(f"Model saved to {path}")
         except Exception as e:
             print(f"Error saving model: {str(e)}")
+
 
