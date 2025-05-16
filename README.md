@@ -46,44 +46,78 @@ self.cube = [
 
 ### Reinforcement Learning Solver (`src/solver/rl_solver.py`)
 
-The `RLCubeSolver` class is designed to find a sequence of moves to solve a scrambled Rubik's Cube. It employs principles of Reinforcement Learning, specifically aiming for a Deep Q-Learning (DQN) approach (though the TensorFlow model integration is a placeholder in the provided code).
+The `RLCubeSolver` class is designed to find a sequence of moves to solve a scrambled Rubik's Cube. It employs principles of Reinforcement Learning (RL) with a focus on Deep Q-Learning (DQN). The solver integrates heuristic evaluations, dynamic action filtering, and enhanced state retention to ensure efficient and structured solving.
 
-**Key Aspects of the RL Algorithm:**
+**Key Features of the RL Solver:**
 
-1.  **State Representation (`_state_to_features`):**
-    *   The solver needs to convert the cube's matrix representation into a numerical format (features) that a neural network can process. The current code outlines a placeholder for one-hot encoding each sticker's color.
+1. **State Representation (`_state_to_features`):**
+   - The solver converts the cube's matrix representation into a numerical format (features) that a neural network can process. This is achieved using one-hot encoding for each sticker's color.
 
-2.  **Actions:**
-    *   The agent can perform 18 fundamental actions: rotating any of the 6 faces (Up, Down, Left, Right, Front, Back) in 3 directions (clockwise, counter-clockwise, or a double 180-degree turn).
+2. **Dynamic Action Filtering:**
+   - The solver dynamically adjusts the available actions (`self.actions`) based on the current solving stage:
+     - **Cross**: Only single moves are allowed.
+     - **F2L**: Single moves and F2L algorithms are allowed.
+     - **OLL**: Single moves, OLL algorithms, and U moves are allowed.
+     - **PLL**: Single moves, PLL algorithms, and U moves are allowed.
+   - This ensures the solver focuses on relevant moves and algorithms for each stage, improving efficiency and reducing unnecessary exploration.
 
-3.  **Reward System (`_evaluate_state`, `_evaluate_white_cross`, `_evaluate_white_corners`):**
-    *   The agent learns by receiving rewards based on the state of the cube. The `_evaluate_state` method calculates a score reflecting how close the cube is to being solved.
-    *   It uses a **progressive reward strategy**, meaning it rewards the agent for achieving intermediate goals, such as:
-        *   Correctly forming the **white cross** on the bottom face.
-        *   Correctly placing and orienting the **white corners** after the cross is complete.
-        *   Solving the **First Two Layers (F2L)**.
-        *   **Orienting the Last Layer (OLL)**.
-        *   **Permuting the Last Layer (PLL)**.
-    *   Achieving these milestones yields significant rewards, guiding the agent through the solving stages.
+3. **Reward System:**
+   - The solver uses a **progressive reward strategy**, rewarding the agent for achieving intermediate goals:
+     - **White Cross**: Rewards for correctly placing and orienting the white edges.
+     - **White Corners**: Rewards for correctly placing and orienting the white corners.
+     - **F2L**: Rewards for correctly placing the middle-layer edges.
+     - **OLL**: Rewards for orienting all stickers on the top face to yellow.
+     - **PLL**: Rewards for permuting all pieces on the top face to their correct positions.
+   - Each stage requires the previous stage to be fully complete before scoring is allowed, ensuring a structured and logical solving process.
 
-4.  **Solving Process (`solve` method):**
-    *   The `solve` method is the main loop where the agent interacts with the cube environment.
-    *   **Iterative Improvement:** It iteratively selects and applies moves or algorithms to the current cube state.
-    *   **Action Selection:**
-        *   The agent evaluates potential moves by predicting their Q-values (using the placeholder model) or by exploring new actions.
-        *   It can also choose to apply **common Rubik's Cube algorithms** (`_get_common_algorithms`) as macro-actions. These are predefined sequences of moves known to solve specific sub-problems (e.g., OLL, PLL cases).
-    *   **Progress Tracking and Reversion:**
-        *   The solver tracks the best score achieved for various stages (e.g., white cross, white corners).
-        *   If a series of moves significantly degrades the cube's state (e.g., breaks a completed white cross), the solver can revert to a previously saved, better state to avoid getting stuck in unproductive paths.
-    *   **Loop Detection and Breaking (`_detect_loop`, `_advanced_loop_breaker`):**
-        *   To prevent the agent from repeating the same sequence of moves endlessly, the `_detect_loop` function checks the history of moves and states.
-        *   If a loop is detected, the `_advanced_loop_breaker` function applies a "breaker" sequence of moves (often a short, somewhat random algorithm) to try and perturb the state and escape the local optimum.
-    *   **Termination:** The process continues until the cube is solved, a maximum number of steps is reached, or a maximum runtime is exceeded.
+4. **Progress Tracking and Retention of Good States:**
+   - The solver tracks the best state and score for each stage (e.g., white cross, white corners, F2L, OLL, PLL).
+   - If significant progress is lost (e.g., regression in the white cross or corners), the solver reverts to the best-known state for that stage.
+   - Regression counters allow temporary setbacks but prevent prolonged loss of progress.
 
-5.  **Exploration and Exploitation:**
-    *   The agent balances exploring new, unknown sequences of moves with exploiting known good moves (based on its learned Q-values or heuristic evaluations). An `exploration_probability` parameter controls this balance.
+5. **Learning and Experience Replay:**
+   - The solver uses a replay buffer to store experiences (`state`, `action`, `reward`, `next_state`, `done`) during the solving process.
+   - A minibatch of experiences is sampled from the buffer to train the neural network, ensuring the agent learns from past actions.
+   - The Q-values predicted by the neural network are blended with heuristic evaluations to guide action selection.
 
-The overall strategy is to guide the RL agent through the complex state space of the Rubik's Cube by breaking the problem down into manageable sub-goals, rewarding progress at each stage, and using techniques to avoid getting stuck.
+6. **Action Selection:**
+   - The solver uses an epsilon-greedy strategy for action selection:
+     - With probability `epsilon`, the solver explores by selecting a random action.
+     - Otherwise, it exploits by selecting the action with the highest Q-value or heuristic score.
+   - Epsilon is annealed over time, gradually reducing exploration as the solver progresses.
+
+7. **Loop Detection and Breaking (`_detect_loop`, `_advanced_loop_breaker`):**
+   - The solver detects repetitive move patterns (e.g., loops or oscillations) and applies a "breaker" sequence of moves to escape the loop while preserving progress.
+
+8. **Stage-Specific Focus:**
+   - The solver dynamically updates its focus and action set based on the current solving stage:
+     - **Cross**: Prioritizes speed and single moves.
+     - **F2L**: Focuses on placing middle-layer edges using F2L algorithms.
+     - **OLL**: Focuses on orienting the last layer using OLL algorithms and U moves.
+     - **PLL**: Focuses on permuting the last layer using PLL algorithms and U moves.
+
+9. **Termination:**
+   - The solving process continues until the cube is solved, a maximum number of steps is reached, or a maximum runtime is exceeded.
+
+---
+
+### Example of Progressive Scoring:
+- **White Cross**:
+  - Each correctly placed and oriented edge: +25 points.
+  - Bonus for completing the cross: +50 points.
+- **White Corners**:
+  - Each correctly placed and oriented corner: +20 points.
+  - Bonus for completing all corners: +50 points.
+- **F2L**:
+  - Each correctly placed middle-layer edge: +25 points.
+  - Bonus for completing F2L: +50 points.
+- **OLL**:
+  - Bonus for orienting all stickers on the top face to yellow: +100 points.
+- **PLL**:
+  - Bonus for permuting all pieces on the top face to their correct positions: +100 points.
+  - Bonus for solving the cube: +200 points.
+
+---
 
 ## Running the Application
 
