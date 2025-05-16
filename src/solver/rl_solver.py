@@ -12,20 +12,32 @@ class RLCubeSolver:
     """
     
     def __init__(self, model_path=None):
-        """
-        Initialize the RL solver
+        self.all_actions = []
+        self.stage = "cross"  # Default starting stage
         
-        Args:
-            model_path: Optional path to a saved model
-        """
-        # Define possible actions first, before any other method calls
-        self.actions = []
+        # Populate single moves
         for face in ['U', 'D', 'L', 'R', 'F', 'B']:
             for direction in ['clockwise', 'counterclockwise', 'double']:
-                self.actions.append((face, direction))
+                self.all_actions.append({
+                    'type': 'single_move',
+                    'move_tuple': (face, direction)
+                })
+        
+        # Populate common algorithms
+        common_algorithms_list = self._get_common_algorithms()
+        for name, moves in common_algorithms_list:
+            if moves:  # Ensure algorithm has moves
+                self.all_actions.append({
+                    'type': 'algorithm',
+                    'name': name,
+                    'moves_list': moves
+                })
+        
+        # Initialize actions for the starting stage
+        self._update_actions_for_stage()
         
         # Set default parameters
-        self.max_steps = 100000  # Increased from 100 to 1000
+        self.max_steps = 100000
         self.default_max_runtime = 300  # 5 minutes in seconds
         
         # Now load the model after actions is defined
@@ -54,13 +66,17 @@ class RLCubeSolver:
     
     def _create_model(self):
         """Create a new TensorFlow model for cube solving"""
-        # Ensure actions are defined
-        if not hasattr(self, 'actions'):
-            # Define actions if not already defined
+        # self.actions should be populated by __init__ before this is called.
+        if not hasattr(self, 'actions') or not self.actions:
+            # This is a fallback, should ideally not be needed if __init__ runs first.
+            print("Warning: self.actions not defined before _create_model. Defining a basic set.")
             self.actions = []
             for face in ['U', 'D', 'L', 'R', 'F', 'B']:
                 for direction in ['clockwise', 'counterclockwise', 'double']:
-                    self.actions.append((face, direction))
+                     self.actions.append({
+                        'type': 'single_move',
+                        'move_tuple': (face, direction)
+                    })
         
         # Example of a simple DQN network
         try:
@@ -69,7 +85,7 @@ class RLCubeSolver:
                 tf.keras.layers.Dense(512, activation='relu'),
                 tf.keras.layers.Dense(256, activation='relu'),
                 tf.keras.layers.Dense(128, activation='relu'),
-                tf.keras.layers.Dense(len(self.actions))  # Q-values for each action
+                tf.keras.layers.Dense(len(self.actions))  # Q-values for each action/algorithm
             ])
             model.compile(optimizer='adam', loss='mse')
             return model
@@ -139,6 +155,52 @@ class RLCubeSolver:
         # Return the new state
         return temp_model.cube
 
+    def _is_f2l_algorithm(self, name):
+        """Check if an algorithm is an F2L algorithm."""
+        return name.startswith("F2L")
+
+    def _is_oll_algorithm(self, name):
+        """Check if an algorithm is an OLL algorithm."""
+        return name.startswith("OLL")
+
+    def _is_pll_algorithm(self, name):
+        """Check if an algorithm is a PLL algorithm."""
+        return name.startswith("PLL")
+
+    def _update_actions_for_stage(self):
+        """
+        Update self.actions based on the current solving stage.
+        """
+        if self.stage == "cross":
+            # Only single moves
+            self.actions = [action for action in self.all_actions if action['type'] == 'single_move']
+        elif self.stage == "f2l":
+            # Single moves and F2L algorithms (no repetitions)
+            self.actions = [
+                action for action in self.all_actions
+                if action['type'] == 'single_move' or
+                (action['type'] == 'algorithm' and self._is_f2l_algorithm(action['name']))
+            ]
+        elif self.stage == "oll":
+            # Single moves, OLL algorithms, and U moves
+            self.actions = [
+                action for action in self.all_actions
+                if action['type'] == 'single_move' or
+                (action['type'] == 'algorithm' and self._is_oll_algorithm(action['name'])) or
+                (action['type'] == 'single_move' and action['move_tuple'][0] == 'U')
+            ]
+        elif self.stage == "pll":
+            # Single moves, PLL algorithms, and U moves
+            self.actions = [
+                action for action in self.all_actions
+                if action['type'] == 'single_move' or
+                (action['type'] == 'algorithm' and self._is_pll_algorithm(action['name'])) or
+                (action['type'] == 'single_move' and action['move_tuple'][0] == 'U')
+            ]
+        else:
+            # Default to all single moves if stage is unknown
+            self.actions = [action for action in self.all_actions if action['type'] == 'single_move']
+
     def _apply_algorithm(self, cube_state, algorithm):
         """
         Apply a sequence of moves (an algorithm) to the cube
@@ -158,7 +220,8 @@ class RLCubeSolver:
         temp_model.cube = copy.deepcopy(cube_state)
         
         # Apply each move in the algorithm
-        for face, direction in algorithm:
+        for move in algorithm:
+            face, direction = move[:2]  # Safely unpack only the first two elements
             temp_model.rotate_face(face, direction)
         
         # Return the new state
@@ -416,6 +479,117 @@ class RLCubeSolver:
         
         return score
 
+    def _evaluate_f2l(self, cube_state):
+        """
+        Evaluate the F2L (First Two Layers) stage.
+        Ensures the correct edge pieces are in the middle layer.
+        Only scores if the corners are fully solved.
+        """
+        if self._evaluate_white_corners(cube_state) < 100:
+            # Corners must be fully solved to score F2L
+            return 0
+
+        score = 0
+        front_face = 1  # Blue face
+        right_face = 2  # Red face
+        left_face = 3   # Orange face
+        back_face = 4   # Green face
+
+        # Define the expected edge positions and their colors
+        f2l_edges_positions = [
+            (front_face, (1, 2), right_face, (1, 0)),  # Front-right edge
+            (front_face, (1, 0), left_face, (1, 2)),   # Front-left edge
+            (back_face, (1, 2), left_face, (1, 0)),    # Back-left edge
+            (back_face, (1, 0), right_face, (1, 2))    # Back-right edge
+        ]
+        expected_colors = [
+            ['b', 'r'],  # Front-right
+            ['b', 'o'],  # Front-left
+            ['g', 'o'],  # Back-left
+            ['g', 'r']   # Back-right
+        ]
+
+        for i, (face1, pos1, face2, pos2) in enumerate(f2l_edges_positions):
+            expected_color1, expected_color2 = expected_colors[i]
+            if cube_state[face1][pos1[0]][pos1[1]][0] == expected_color1 and \
+            cube_state[face2][pos2[0]][pos2[1]][0] == expected_color2:
+                score += 25  # Score for each correct edge
+
+        # Bonus for completing all F2L edges
+        if score == 100:
+            score += 50  # Bonus for completing F2L
+
+        return score
+    
+    def _evaluate_oll(self, cube_state):
+        """
+        Evaluate the OLL (Orient Last Layer) stage.
+        Ensures all stickers on the top face are yellow.
+        Only scores if F2L is fully complete.
+        """
+        if self._evaluate_f2l(cube_state) < 100:
+            # F2L must be fully solved to score OLL
+            return 0
+
+        score = 0
+        top_face = 0  # Yellow face
+
+        # Check if all stickers on the top face are yellow
+        top_face_colors = [sticker[0] for row in cube_state[top_face] for sticker in row]
+        if all(color == 'y' for color in top_face_colors):
+            score += 100  # Full OLL completion bonus
+
+        return score
+    
+
+    def _evaluate_pll(self, cube_state):
+        """
+        Evaluate the PLL (Permute Last Layer) stage.
+        Ensures all pieces on the top face are in their correct positions.
+        Only scores if OLL is fully complete.
+        """
+        if self._evaluate_oll(cube_state) < 100:
+            # OLL must be fully solved to score PLL
+            return 0
+
+        score = 0
+        top_face = 0  # Yellow face
+        front_face = 1  # Blue face
+        right_face = 2  # Red face
+        left_face = 3   # Orange face
+        back_face = 4   # Green face
+
+        # Define the expected colors for the top layer edges
+        expected_top_edges = [
+            (front_face, (0, 1), 'b'),  # Front edge
+            (right_face, (0, 1), 'r'),  # Right edge
+            (back_face, (0, 1), 'g'),   # Back edge
+            (left_face, (0, 1), 'o')    # Left edge
+        ]
+
+        # Check if all top edges are in the correct positions
+        for face, pos, expected_color in expected_top_edges:
+            if cube_state[face][pos[0]][pos[1]][0] == expected_color:
+                score += 25  # Score for each correct edge
+
+        # Define the expected colors for the top layer corners
+        expected_top_corners = [
+            (front_face, (0, 0), right_face, (0, 2), 'b', 'r'),  # Front-right corner
+            (front_face, (0, 2), left_face, (0, 0), 'b', 'o'),   # Front-left corner
+            (back_face, (0, 2), right_face, (0, 0), 'g', 'r'),   # Back-right corner
+            (back_face, (0, 0), left_face, (0, 2), 'g', 'o')     # Back-left corner
+        ]
+
+        for face1, pos1, face2, pos2, expected_color1, expected_color2 in expected_top_corners:
+            if cube_state[face1][pos1[0]][pos1[1]][0] == expected_color1 and \
+            cube_state[face2][pos2[0]][pos2[1]][0] == expected_color2:
+                score += 25  # Score for each correct corner
+
+        # Bonus for completing PLL
+        if score == 200:
+            score += 100  # Bonus for completing PLL
+
+        return score
     def _evaluate_white_cross(self, cube_state):
         """Evaluate just the white cross"""
         score = 0
@@ -796,392 +970,279 @@ class RLCubeSolver:
     def solve(self, cube_state, controller=None, max_runtime=None):
         """
         Solve the cube using reinforcement learning with real-time visualization
-        
+
         Args:
             cube_state: The current cube state to solve
             controller: Optional controller for visualization updates
             max_runtime: Maximum runtime in seconds (default: 300s/5min)
-        
+
         Returns:
             List of solution moves
         """
         print("Attempting to solve cube...")
-        
+
         import time
-        import numpy as np # For softmax
+        import numpy as np  # For softmax
         start_time = time.time()
         if max_runtime is None:
             max_runtime = self.default_max_runtime
-        
+
         if cube_state is None:
             print("ERROR: Cannot solve a None cube state")
             return []
-        
+
         try:
             current_state = copy.deepcopy(cube_state)
             solution_moves = []
-            
+
             best_score_overall = self._evaluate_state(current_state)
             best_state_overall = copy.deepcopy(current_state)
-            
+
             best_white_cross = self._evaluate_white_cross(current_state)
             best_cross_state = copy.deepcopy(current_state)
-            
-            best_white_corners = self._evaluate_white_corners(current_state)
-            best_corners_state = copy.deepcopy(current_state)
-            
-            move_history = []
-            state_hash_history = [] # Initialize state_hash_history
-            state_hash_history_limit = 20 # Define limit for state_hash_history
+            best_cross_step = 0  # Track when best cross was achieved
 
-            history_limit = 10 
-            steps_without_progress = 0
-            local_optima_counter = 0
+            move_history = []
             visited_states = set()
-            exploration_probability = 0.1 
-            
+            exploration_probability = 0.15  # Base exploration rate
+
             white_cross_solved = False
-            white_corners_solved = False
-            
-            common_algorithms = self._get_common_algorithms()
-            current_stage = "cross"
-            current_target = None
+            f2l_solved = False
+            oll_solved = False
+            pll_solved = False
 
             initial_hash = self._get_state_hash(current_state)
             visited_states.add(initial_hash)
-            # state_hash_history will be populated at the end of each step
-            
-            corner_milestone_states = {}
-            
+
+            cross_regress_counter = 0
+            cross_regress_limit = 8  # Allow up to 8 moves of cross regression before reverting
+
+            # RL experience replay buffer
+            experience_buffer = []
+            batch_size = 32
+            gamma = 0.95  # Discount factor
+
             for step in range(self.max_steps):
+                # Update the stage based on progress
+                if not white_cross_solved and self._evaluate_white_cross(current_state) >= 100:
+                    white_cross_solved = True
+                    self.stage = "f2l"#uses same algorithms as corners
+                    self._update_actions_for_stage()
+                    print("White cross solved! Moving to F2L...")
+                elif white_cross_solved and not f2l_solved and self._evaluate_f2l(current_state) >= 100:
+                    f2l_solved = True
+                    self.stage = "oll"
+                    self._update_actions_for_stage()
+                    print("F2L solved! Moving to OLL...")
+                elif f2l_solved and not oll_solved and self._evaluate_oll(current_state) >= 100:
+                    oll_solved = True
+                    self.stage = "pll"
+                    self._update_actions_for_stage()
+                    print("OLL solved! Moving to PLL...")
+                elif oll_solved and not pll_solved and self._evaluate_pll(current_state) >= 100:
+                    pll_solved = True
+                    print("PLL solved! Cube is solved!")
+
                 current_time = time.time()
                 elapsed_time = current_time - start_time
                 if elapsed_time > max_runtime:
                     print(f"Time limit of {max_runtime} seconds reached. Stopping.")
                     return solution_moves
-                    
+
                 print(f"Step {step + 1}/{self.max_steps} (Elapsed time: {elapsed_time:.1f}s)")
-                
+
                 if current_state is None:
                     print("ERROR: Current state is None. Using best overall state.")
                     current_state = copy.deepcopy(best_state_overall)
                     if current_state is None: 
                         print("ERROR: Best overall state is also None. Cannot continue.")
                         return solution_moves
-                    visited_states.add(self._get_state_hash(current_state)) # Add to visited if reverted
-                
+                    visited_states.add(self._get_state_hash(current_state)) 
+
                 current_score_eval = self._evaluate_state(current_state) 
                 white_cross_score = self._evaluate_white_cross(current_state)
-                white_corners_score = self._evaluate_white_corners(current_state)
-                
-                solved_corners = self._get_solved_corners(current_state)
-                num_solved = len(solved_corners)
 
-                if num_solved > 0 and (num_solved not in corner_milestone_states or 
-                                        self._evaluate_white_corners(current_state) > self._evaluate_white_corners(corner_milestone_states[num_solved])):
-                    corner_milestone_states[num_solved] = copy.deepcopy(current_state)
-                    print(f"  New milestone: {num_solved} corners correctly placed!")
-                
-                best_corners_from_state = self._get_solved_corners(best_corners_state) if best_corners_state is not None else set()
-                if len(solved_corners) > len(best_corners_from_state):
-                    print(f"  Found new solved corner(s)! Now have {len(solved_corners)} corners solved")
-                    best_corners_state = copy.deepcopy(current_state)
-                    best_white_corners = white_corners_score 
-                
+                # Update solved status
                 if white_cross_score >= 100 and not white_cross_solved:
                     white_cross_solved = True
-                    print("White cross completed! Moving to next stage...")
-                    current_stage, current_target, _ = self._get_next_target_after_cross(current_state)
-                    print(f"New focus: {current_stage}")
-                
-                if white_corners_score >= 100 and not white_corners_solved: 
-                    white_corners_solved = True
-                    print("White corners completed! Moving to F2L...")
-                    current_stage = "f2l"
-                
+                    print("White cross completed! Continuing with solving...")
+
+                # Update best scores and states for stages
                 if white_cross_score > best_white_cross:
                     best_white_cross = white_cross_score
                     best_cross_state = copy.deepcopy(current_state)
-                    print(f"  Improved white cross! Score: {white_cross_score}")
-                
-                if white_cross_solved and white_corners_score > best_white_corners:
-                    best_white_corners = white_corners_score
-                    best_corners_state = copy.deepcopy(current_state)
-                    print(f"  Improved white corners! Score: {white_corners_score}")
-                
-                # Revert if white cross progress is significantly lost
-                if (best_white_cross > 50 and white_cross_score < best_white_cross * 0.6 and best_cross_state is not None):
-                    print(f"  Lost white cross progress (current: {white_cross_score:.0f}, best: {best_white_cross:.0f})! Reverting to best known cross state.")
-                    current_state = copy.deepcopy(best_cross_state)
-                    visited_states.add(self._get_state_hash(current_state))
-                    if controller and hasattr(controller.view, 'root'):
-                        controller.model.cube = copy.deepcopy(current_state)
-                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                        controller.view.root.update_idletasks()
-                        time.sleep(0.1)
-                    # Update scores after revert for consistency within the step
-                    white_cross_score = self._evaluate_white_cross(current_state)
-                    white_corners_score = self._evaluate_white_corners(current_state)
-                    current_score_eval = self._evaluate_state(current_state)
-                    continue
+                    best_cross_step = step
+                    cross_regress_counter = 0
+                    print(f"  Improved white cross! Score: {white_cross_score:.0f}")
 
-                # Revert if white corner progress is significantly lost (New Logic)
-                if (white_cross_solved and 
-                    best_corners_state is not None and
-                    best_white_corners > 30 and # Ensure best_white_corners is somewhat significant (e.g., at least one corner partially done)
-                    white_corners_score < best_white_corners * 0.7): # Revert if current corner score drops significantly from its best
-                    print(f"  Lost significant corner progress (current: {white_corners_score:.0f}, best: {best_white_corners:.0f})! Reverting to best known corners state.")
-                    current_state = copy.deepcopy(best_corners_state)
-                    visited_states.add(self._get_state_hash(current_state))
-                    if controller and hasattr(controller.view, 'root'):
-                        controller.model.cube = copy.deepcopy(current_state)
-                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                        controller.view.root.update_idletasks()
-                        time.sleep(0.1)
-                    # Update scores after revert
-                    white_cross_score = self._evaluate_white_cross(current_state)
-                    white_corners_score = self._evaluate_white_corners(current_state)
-                    current_score_eval = self._evaluate_state(current_state)
-                    continue
-                
-                evaluated_action_scores = []
-                if not hasattr(self, 'actions') or not self.actions:
-                    print("ERROR: No actions defined for the solver.")
-                    return solution_moves
-                
-                for action_tuple in self.actions:
-                    face, direction = action_tuple
-                    new_state_eval = self._apply_action(current_state, face, direction)
-                    original_score = self._evaluate_state(new_state_eval)
-                    
-                    repeat_penalty = self._calculate_repeat_penalty(move_history, action_tuple)
+                # Allow temporary regression, but revert if cross progress is lost for too long
+                if not white_cross_solved:
+                    if white_cross_score < best_white_cross * 0.7:
+                        cross_regress_counter += 1
+                        print(f"  Cross regression detected ({cross_regress_counter}/{cross_regress_limit})")
+                        if cross_regress_counter >= cross_regress_limit:
+                            print("  Too much cross regression, reverting to best cross state.")
+                            current_state = copy.deepcopy(best_cross_state)
+                            # Remove moves since best_cross_step
+                            solution_moves = solution_moves[:best_cross_step]
+                            move_history = move_history[:best_cross_step]
+                            cross_regress_counter = 0
+                            continue
+                    else:
+                        cross_regress_counter = 0
+
+                all_evaluated_options = []
+
+                # --- RL: Predict Q-values for all actions ---
+                state_features = self._state_to_features(current_state)
+                q_values = None
+                if hasattr(self, "model") and self.model is not None:
+                    try:
+                        q_values = self.model.predict(state_features, verbose=0)[0]
+                    except Exception as e:
+                        print(f"Warning: Model prediction failed: {e}")
+                        q_values = None
+
+                for idx, action_definition in enumerate(self.actions):
+                    temp_eval_state = copy.deepcopy(current_state)
+                    action_type = action_definition['type']
+
+                    option_entry = {"type": action_type}
+                    first_move_for_penalty_calc = None
+
+                    if action_type == 'single_move':
+                        face, direction = action_definition['move_tuple']
+                        temp_eval_state = self._apply_action(temp_eval_state, face, direction)
+                        option_entry["move_tuple"] = action_definition['move_tuple']
+                        first_move_for_penalty_calc = action_definition['move_tuple']
+                    elif action_type == 'algorithm':
+                        alg_name = action_definition['name']
+                        alg_moves = action_definition['moves_list']
+                        if not alg_moves: continue
+                        temp_eval_state = self._apply_algorithm(temp_eval_state, alg_moves)
+                        option_entry["name"] = alg_name
+                        option_entry["moves_list"] = alg_moves
+                        first_move_for_penalty_calc = alg_moves[0] if alg_moves else None
+                    else:
+                        print(f"Warning: Unknown action type: {action_type}")
+                        continue
+
+                    original_score = self._evaluate_state(temp_eval_state)
+
+                    repeat_penalty = 0
+                    if first_move_for_penalty_calc:
+                        repeat_penalty = self._calculate_repeat_penalty(move_history, first_move_for_penalty_calc)
+                        if action_type == 'algorithm':  # Algorithms are more deliberate
+                            repeat_penalty *= 0.3 
+
                     stage_bonus = 0
-                    
-                    new_state_hash = self._get_state_hash(new_state_eval)
-                    visit_penalty = 0
-                    if new_state_hash in visited_states:
-                        visit_penalty = 150 
+                    eval_cross_score = self._evaluate_white_cross(temp_eval_state)
 
-                    current_solved_for_bonus = self._get_solved_corners(current_state)
-                    if len(current_solved_for_bonus) > 0 and white_cross_solved:
-                        new_solved_for_bonus = self._get_solved_corners(new_state_eval)
-                        if not new_solved_for_bonus.issuperset(current_solved_for_bonus):
-                            lost_count = len(current_solved_for_bonus) - len(current_solved_for_bonus.intersection(new_solved_for_bonus))
-                            stage_bonus -= 1000 * lost_count
-                    
-                    if current_stage == "corner" and (face == 'R' or face == 'L'): stage_bonus += 10
-                    elif current_stage == "cross" and (face in ['D', 'F', 'B']): stage_bonus += 5
-                    elif white_cross_score >= 90 and face == 'U': stage_bonus += 5
-                    
-                    if white_cross_score >= 100 and self._evaluate_white_cross(new_state_eval) < 90: stage_bonus -= 1000
-                    if white_corners_score >= 100 and self._evaluate_white_corners(new_state_eval) < 90: stage_bonus -= 800
-                        
-                    adjusted_score = original_score - repeat_penalty + stage_bonus - visit_penalty
-                    evaluated_action_scores.append((action_tuple, new_state_eval, original_score, adjusted_score))
+                    # Penalties for losing progress (relaxed: allow temporary regression)
+                    # Only apply a strong penalty if cross is lost for too long (handled above)
+                    # Here, just apply a mild penalty for regression
+                    if white_cross_solved and eval_cross_score < 100:  # Lost solved cross
+                        stage_bonus -= 2000 
+                    elif not white_cross_solved and white_cross_score > 0 and eval_cross_score < white_cross_score * 0.7:
+                        stage_bonus -= (white_cross_score - eval_cross_score) * 2  # Mild penalty
 
-                action_applied_by_algorithm = False
-                if current_stage == "corner" and white_cross_solved:
-                    temp_filtered_scores = []
-                    for act_data in evaluated_action_scores:
-                        act, n_state, o_score, adj_score = act_data
-                        f, d = act
-                        if f in ['R', 'L', 'U']:
-                            new_adj_score = adj_score
-                            if f in ['R', 'L']: new_adj_score += 100
-                            else: new_adj_score += 20 
-                            temp_filtered_scores.append((act, n_state, o_score, new_adj_score))
-                    if temp_filtered_scores:
-                        evaluated_action_scores = temp_filtered_scores
+                    # Bonuses for achieving/improving stages
+                    if not white_cross_solved and eval_cross_score > white_cross_score:
+                        stage_bonus += (eval_cross_score - white_cross_score) * 15  # Strong bonus for cross progress
+                        if eval_cross_score >= 100: stage_bonus += 500  # Cross completion bonus
 
-                    if random.random() < 0.9: 
-                        corner_algs_list = []
-                        basic_algs = [("R U R' U'", [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "counterclockwise")]), ("L U L' U'", [("L", "clockwise"), ("U", "clockwise"), ("L", "counterclockwise"), ("U", "counterclockwise")]), ("R' U' R U", [("R", "counterclockwise"), ("U", "counterclockwise"), ("R", "clockwise"), ("U", "clockwise")]), ("L' U' L U", [("L", "counterclockwise"), ("U", "counterclockwise"), ("L", "clockwise"), ("U", "clockwise")]), ("U R U' R'", [("U", "clockwise"), ("R", "clockwise"), ("U", "counterclockwise"), ("R", "counterclockwise")]), ("U L U' L'", [("U", "clockwise"), ("L", "clockwise"), ("U", "counterclockwise"), ("L", "counterclockwise")]), ("U' R U R'", [("U", "counterclockwise"), ("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")]), ("U' L U L'", [("U", "counterclockwise"), ("L", "clockwise"), ("U", "clockwise"), ("L", "counterclockwise")]),]
-                        u_moves_list = [("U", [("U", "clockwise")]), ("U'", [("U", "counterclockwise")]), ("U2", [("U", "double")]),]
-                        for name, alg_moves in basic_algs:
-                            corner_algs_list.append((name, alg_moves))
-                            for i in range(1, 7): corner_algs_list.append((f"{name} x{i}", alg_moves * i))
-                        corner_algs_list.extend(u_moves_list)
-                        
-                        if corner_algs_list:
-                            chosen_alg_name, chosen_alg_moves = random.choice(corner_algs_list)
-                            print(f"  Applying corner algorithm: {chosen_alg_name}")
-                            new_state_algo = self._apply_algorithm(copy.deepcopy(current_state), chosen_alg_moves)
-                            solved_corners_pre_algo = self._get_solved_corners(current_state)
-                            solved_corners_post_algo = self._get_solved_corners(new_state_algo)
+                    new_state_hash = self._get_state_hash(temp_eval_state)
+                    visit_penalty = 200 if new_state_hash in visited_states else 0
 
-                            if len(solved_corners_post_algo) >= len(solved_corners_pre_algo):
-                                current_state = new_state_algo
-                                visited_states.add(self._get_state_hash(current_state))
-                                for move in chosen_alg_moves:
-                                    solution_moves.append(move)
-                                    move_history.append(move) # Algorithms also contribute to move_history for loop detection
-                                if controller and hasattr(controller.view, 'root'):
-                                    controller.model.cube = copy.deepcopy(current_state) 
-                                    controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                                    controller.view.root.update_idletasks()
-                                    time.sleep(0.05 * len(chosen_alg_moves)) 
-                                print(f"  Algorithm applied, now have {len(solved_corners_post_algo)} corners solved!")
-                                action_applied_by_algorithm = True
-                                continue 
-                            else:
-                                print(f"  Algorithm would reduce corner progress, trying individual moves...")
+                    adjusted_score = original_score + stage_bonus - repeat_penalty - visit_penalty
 
-                elif current_stage == "f2l" and white_cross_solved and white_corners_solved:
-                    if random.random() < 0.5: 
-                        f2l_algs_list = [alg for alg in common_algorithms if "F2L" in alg[0]]
-                        if f2l_algs_list:
-                            chosen_alg_name, chosen_alg_moves = random.choice(f2l_algs_list)
-                            print(f"  Applying F2L algorithm: {chosen_alg_name}")
-                            new_state_algo = self._apply_algorithm(copy.deepcopy(current_state), chosen_alg_moves)
-                            score_post_algo = self._evaluate_state(new_state_algo)
-                            if score_post_algo > current_score_eval: 
-                                current_state = new_state_algo
-                                visited_states.add(self._get_state_hash(current_state))
-                                for move in chosen_alg_moves:
-                                    solution_moves.append(move)
-                                    move_history.append(move) # Algorithms also contribute to move_history
-                                if controller and hasattr(controller.view, 'root'):
-                                    controller.model.cube = copy.deepcopy(current_state)
-                                    controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                                    controller.view.root.update_idletasks()
-                                    time.sleep(0.05 * len(chosen_alg_moves))
-                                print(f"  Algorithm improved score to {score_post_algo}!")
-                                action_applied_by_algorithm = True
-                                continue
-                            else:
-                                print(f"  Algorithm didn't improve state, trying individual moves...")
-                
-                evaluated_action_scores.sort(key=lambda x: x[3], reverse=True) 
-                
-                action_taken_this_cycle = False 
-                score_of_chosen_state = current_score_eval 
+                    # RL: If Q-values available, blend with adjusted_score
+                    if q_values is not None and idx < len(q_values):
+                        # Weighted sum: RL Q-value + heuristic
+                        rl_weight = 0.6
+                        adjusted_score = rl_weight * q_values[idx] + (1 - rl_weight) * adjusted_score
 
-                is_in_loop = self._detect_loop(move_history) # Only pass move_history
-                if is_in_loop:
-                    print("  Loop detected! Applying algorithm breaker...")
-                    breaker_moves = self._advanced_loop_breaker(current_state)
-                    temp_state_breaker = copy.deepcopy(current_state)
-                    for b_face, b_dir in breaker_moves:
-                        temp_state_breaker = self._apply_action(temp_state_breaker, b_face, b_dir)
-                        solution_moves.append((b_face, b_dir))
-                        move_history.append((b_face, b_dir))
-                    current_state = temp_state_breaker
+                    option_entry["next_state"] = temp_eval_state
+                    option_entry["original_score"] = original_score
+                    option_entry["adjusted_score"] = adjusted_score
+                    option_entry["action_idx"] = idx
+                    all_evaluated_options.append(option_entry)
+
+                all_evaluated_options.sort(key=lambda x: x["adjusted_score"], reverse=True) 
+
+                # --- RL: Epsilon-greedy selection ---
+                chosen_option_details = None
+                epsilon = exploration_probability
+                if q_values is not None:
+                    # Anneal epsilon over time
+                    epsilon = max(0.05, exploration_probability * (1 - step / self.max_steps))
+                if np.random.rand() < epsilon and len(all_evaluated_options) > 1:
+                    chosen_option_details = np.random.choice(all_evaluated_options[1:min(6, len(all_evaluated_options))])
+                    print(f"  RL Exploring: {chosen_option_details.get('name', chosen_option_details.get('move_tuple'))}")
+                elif all_evaluated_options:
+                    chosen_option_details = all_evaluated_options[0]
+                    print(f"  RL Exploiting: {chosen_option_details.get('name', chosen_option_details.get('move_tuple'))}")
+
+                # --- RL: Store experience for learning ---
+                if chosen_option_details:
+                    prev_features = self._state_to_features(current_state)
+                    action_idx = chosen_option_details.get("action_idx", 0)
+                    reward = chosen_option_details["original_score"] - current_score_eval
+                    next_state = chosen_option_details["next_state"]
+                    done = self._is_solved(next_state)
+                    next_features = self._state_to_features(next_state)
+                    experience_buffer.append((prev_features, action_idx, reward, next_features, done))
+
+                    # Keep buffer size reasonable
+                    if len(experience_buffer) > 10000:
+                        experience_buffer = experience_buffer[-10000:]
+
+                # --- RL: Train model from experience buffer ---
+                if hasattr(self, "model") and self.model is not None and len(experience_buffer) >= batch_size:
+                    minibatch = random.sample(experience_buffer, batch_size)
+                    states = np.vstack([exp[0] for exp in minibatch])
+                    actions = [exp[1] for exp in minibatch]
+                    rewards = [exp[2] for exp in minibatch]
+                    next_states = np.vstack([exp[3] for exp in minibatch])
+                    dones = [exp[4] for exp in minibatch]
+
+                    # Predict Q-values for current and next states
+                    q_current = self.model.predict(states, verbose=0)
+                    q_next = self.model.predict(next_states, verbose=0)
+
+                    for i in range(batch_size):
+                        target = rewards[i]
+                        if not dones[i]:
+                            target += gamma * np.max(q_next[i])
+                        q_current[i][actions[i]] = target
+
+                    self.model.fit(states, q_current, epochs=1, verbose=0)
+
+                # --- Apply chosen move ---
+                if chosen_option_details:
+                    current_state = chosen_option_details["next_state"]
                     visited_states.add(self._get_state_hash(current_state))
-                    action_taken_this_cycle = True
-                    if controller and hasattr(controller.view, 'root'):
-                        controller.model.cube = copy.deepcopy(current_state)
-                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                        controller.view.root.update_idletasks()
-                        time.sleep(0.05 * len(breaker_moves))
-                else:
-                    chosen_action_details = None
-                    if random.random() < exploration_probability and len(evaluated_action_scores) > 1:
-                        explorable_candidates = evaluated_action_scores[1:min(6, len(evaluated_action_scores))]
-                        if explorable_candidates:
-                            adj_scores = np.array([data[3] for data in explorable_candidates], dtype=float)
-                            stable_adj_scores = adj_scores - np.max(adj_scores)
-                            exp_adj_scores = np.exp(stable_adj_scores)
-                            probabilities = exp_adj_scores / np.sum(exp_adj_scores)
-                            if np.isnan(probabilities).any() or np.sum(probabilities) == 0: 
-                                probabilities = np.ones(len(explorable_candidates)) / len(explorable_candidates)
-                            
-                            chosen_idx = np.random.choice(len(explorable_candidates), p=probabilities)
-                            chosen_action_details = explorable_candidates[chosen_idx]
-                            print(f"  Exploring (softmax): {chosen_action_details[0]} (Score: {chosen_action_details[2]}, Adj: {chosen_action_details[3]})")
-                    
-                    if not chosen_action_details: 
-                        if evaluated_action_scores:
-                            chosen_action_details = evaluated_action_scores[0]
-                            print(f"  Taking best action: {chosen_action_details[0]} (Score: {chosen_action_details[2]}, Adj: {chosen_action_details[3]})")
-                        else:
-                            print("ERROR: No actions available for selection.")
-                            # Add current state hash to history before returning
-                            state_hash_history.append(self._get_state_hash(current_state))
-                            if len(state_hash_history) > state_hash_history_limit: state_hash_history.pop(0)
-                            return solution_moves 
-
-                    selected_action, new_state_selected, original_score_selected, _ = chosen_action_details
-                    current_state = new_state_selected
-                    visited_states.add(self._get_state_hash(current_state))
-                    solution_moves.append(selected_action)
-                    move_history.append(selected_action)
-                    action_taken_this_cycle = True
-                    score_of_chosen_state = original_score_selected 
+                    if chosen_option_details["type"] == "single_move":
+                        solution_moves.append(chosen_option_details["move_tuple"])
+                        move_history.append(chosen_option_details["move_tuple"])
+                    elif chosen_option_details["type"] == "algorithm":
+                        solution_moves.extend(chosen_option_details["moves_list"])
+                        move_history.extend(chosen_option_details["moves_list"])
 
                     if controller and hasattr(controller.view, 'root'):
                         controller.model.cube = copy.deepcopy(current_state)
                         controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
                         controller.view.root.update_idletasks()
-                        time.sleep(0.01) 
-
-                if action_taken_this_cycle: # This applies to loop breaker or individual move
-                    if len(move_history) > history_limit:
-                        move_history.pop(0)
-                    # visited_states.add is handled where current_state is set
-
-                # Append the hash of the current_state (finalized for this step) to state_hash_history
-                # This hash will be used by _detect_loop in the *next* step.
-                state_hash_history.append(self._get_state_hash(current_state))
-                if len(state_hash_history) > state_hash_history_limit:
-                    state_hash_history.pop(0)
+                        controller.view.root.update()
+                        time.sleep(0.01)
 
                 if self._is_solved(current_state):
                     print(f"Solution found in {step + 1} steps!")
-                    if controller and hasattr(controller.view, 'root'):
-                        controller.model.cube = copy.deepcopy(current_state)
-                        controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
                     return solution_moves
-                
-                # Progress tracking: use action_taken_this_cycle or action_applied_by_algorithm
-                # The original logic used action_taken_this_cycle. We should ensure this covers algorithms too if they don't 'continue'.
-                # However, algorithms currently 'continue', so progress is based on the state after the algo.
-                # The score_of_chosen_state is for individual moves.
-                # Let's use current_score_eval (score after any action/revert/algo) vs best_score_overall
-                
-                current_final_score_for_step = self._evaluate_state(current_state) # Re-evaluate after any action
-                if current_final_score_for_step > best_score_overall:
-                    best_score_overall = current_final_score_for_step
-                    best_state_overall = copy.deepcopy(current_state)
-                    steps_without_progress = 0
-                    print(f"  Found better state! Score: {best_score_overall}")
-                elif action_taken_this_cycle or action_applied_by_algorithm : # only increment if an action was attempted
-                    steps_without_progress += 1
-                
-                if steps_without_progress > 15: 
-                    exploration_probability = min(0.3, exploration_probability * 1.2) 
-                    steps_without_progress = 0 
-                    local_optima_counter += 1
-                    print(f"  No progress for {15} steps, increasing exploration to {exploration_probability:.2f}")
-                    
-                    if random.random() < 0.5: 
-                        print("  Trying a random common algorithm to break out of local optima")
-                        if common_algorithms:
-                            chosen_alg_name, chosen_alg_moves = random.choice(common_algorithms)
-                            print(f"  Selected algorithm: {chosen_alg_name}")
-                            
-                            temp_state_optima = copy.deepcopy(current_state)
-                            for move in chosen_alg_moves:
-                                temp_state_optima = self._apply_action(temp_state_optima, move[0], move[1])
-                                solution_moves.append(move)
-                                move_history.append(move) # Add to move_history
-                            current_state = temp_state_optima
-                            visited_states.add(self._get_state_hash(current_state)) # Add to visited
-                            
-                            if controller and hasattr(controller.view, 'root'):
-                                controller.model.cube = copy.deepcopy(current_state)
-                                controller.view.root.after(0, lambda: controller.view.update_view(controller.model.cube))
-                                controller.view.root.update_idletasks()
-                                time.sleep(0.05 * len(chosen_alg_moves))
-                    
-                    if controller and hasattr(controller.view, 'root'): 
-                        controller.view.root.update() 
 
-                    if white_cross_solved: 
-                        current_stage, current_target, _ = self._get_next_target_after_cross(current_state)
-            
-            print(f"Maximum steps reached without solution.")
+            print(f"Maximum steps reached. Current solution length: {len(solution_moves)}")
             return solution_moves
-            
+
         except Exception as e:
             print(f"Error in solve method: {str(e)}")
             import traceback
