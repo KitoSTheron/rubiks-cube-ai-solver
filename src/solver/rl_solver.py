@@ -105,7 +105,7 @@ class RLCubeSolver:
         # This is a placeholder - implement your feature extraction here
         # You'll need to convert the cube representation to a format suitable for the NN
         features = []
-        # Example of a simple one-hot encoding approach:
+        # Example of a simple
         color_map = {'y': 0, 'b': 1, 'r': 2, 'o': 3, 'g': 4, 'w': 5}
         
         for face in cube_state:
@@ -175,11 +175,15 @@ class RLCubeSolver:
             # Only single moves
             self.actions = [action for action in self.all_actions if action['type'] == 'single_move']
         elif self.stage == "f2l":
-            # Single moves and F2L algorithms (no repetitions)
+            # Single moves and F2L algorithms in ALL orientations
             self.actions = [
                 action for action in self.all_actions
                 if action['type'] == 'single_move' or
-                (action['type'] == 'algorithm' and self._is_f2l_algorithm(action['name']))
+                (action['type'] == 'algorithm' and (
+                    self._is_f2l_algorithm(action['name']) or
+                    # Include standard R and L algorithms in all orientations for F2L
+                    ("Move" in action['name'] and "oriented" in action['name'].lower())
+                ))
             ]
         elif self.stage == "oll":
             # Single moves, OLL algorithms, and U moves
@@ -200,6 +204,11 @@ class RLCubeSolver:
         else:
             # Default to all single moves if stage is unknown
             self.actions = [action for action in self.all_actions if action['type'] == 'single_move']
+        
+        # Print information about available actions
+        alg_count = sum(1 for a in self.actions if a['type'] == 'algorithm')
+        move_count = sum(1 for a in self.actions if a['type'] == 'single_move')
+        print(f"Stage {self.stage}: {len(self.actions)} actions available ({alg_count} algorithms, {move_count} single moves)")
 
     def _apply_algorithm(self, cube_state, algorithm):
         """
@@ -230,7 +239,7 @@ class RLCubeSolver:
     def _get_common_algorithms(self):
         """
         Return a list of common algorithms for Rubik's Cube,
-        avoiding M-slice moves and replacing them with R and L moves
+        avoiding M-slice moves and replacing them with R and L based versions
         """
         face_map = {
             "U": ["U", "F", "R", "B", "L"],
@@ -437,46 +446,49 @@ class RLCubeSolver:
                 corners_score = self._evaluate_white_corners(cube_state)
                 score += corners_score  # Add the corners score to the total
                 
+                # Only proceed to F2L evaluation if corners are completely solved
+                white_corners_complete = corners_score >= 150  # The value when all corners are correct
                 
-                # Evaluate F2L (First Two Layers)
-                f2l_edges_positions = [
-                    (front_face, (1, 2), right_face, (1, 0)),
-                    (front_face, (1, 0), left_face, (1, 2)),
-                    (back_face, (1, 2), left_face, (1, 0)),
-                    (back_face, (1, 0), right_face, (1, 2))
-                ]
-                expected_f2l_colors = [
-                    ['b', 'r'],
-                    ['b', 'o'],
-                    ['g', 'o'],
-                    ['g', 'r']
-                ]
+                if white_corners_complete:
+                    # Evaluate F2L (First Two Layers)
+                    f2l_edges_positions = [
+                        (front_face, (1, 2), right_face, (1, 0)),
+                        (front_face, (1, 0), left_face, (1, 2)),
+                        (back_face, (1, 2), left_face, (1, 0)),
+                        (back_face, (1, 0), right_face, (1, 2))
+                    ]
+                    expected_f2l_colors = [
+                        ['b', 'r'],
+                        ['b', 'o'],
+                        ['g', 'o'],
+                        ['g', 'r']
+                    ]
 
-                f2l_edges_correct = 0
+                    f2l_edges_correct = 0
 
-                for i, (face1, pos1, face2, pos2) in enumerate(f2l_edges_positions):
-                    expected_colors = expected_f2l_colors[i]
+                    for i, (face1, pos1, face2, pos2) in enumerate(f2l_edges_positions):
+                        expected_colors = expected_f2l_colors[i]
 
-                    # Check if the edge piece is in the correct position
-                    if cube_state[face1][pos1[0]][pos1[1]][0] == expected_colors[0] and \
-                       cube_state[face2][pos2[0]][pos2[1]][0] == expected_colors[1]:
-                        score += 40  # Higher value for correct F2L edge position
-                        f2l_edges_correct += 1
+                        # Check if the edge piece is in the correct position
+                        if cube_state[face1][pos1[0]][pos1[1]][0] == expected_colors[0] and \
+                        cube_state[face2][pos2[0]][pos2[1]][0] == expected_colors[1]:
+                            score += 40  # Higher value for correct F2L edge position
+                            f2l_edges_correct += 1
 
-                # Bonus for completing F2L
-                if f2l_edges_correct == 4:
-                    score += 100  # Higher bonus for completing F2L
-                    
-                    # Evaluate OLL (Orient Last Layer)
-                    # Check if the top face is all oriented correctly (all yellow)
-                    top_face_colors = [sticker[0] for row in cube_state[top_face] for sticker in row]
-                    if all(color == 'y' for color in top_face_colors):
-                        score += 150  # Bonus for completing OLL
+                    # Bonus for completing F2L
+                    if f2l_edges_correct == 4:
+                        score += 100  # Higher bonus for completing F2L
                         
-                        # Evaluate PLL (Permute Last Layer)
-                        if self._is_solved(cube_state):
-                            score += 200  # Bonus for solving the cube
-        
+                        # Evaluate OLL (Orient Last Layer)
+                        # Check if the top face is all oriented correctly (all yellow)
+                        top_face_colors = [sticker[0] for row in cube_state[top_face] for sticker in row]
+                        if all(color == 'y' for color in top_face_colors):
+                            score += 150  # Bonus for completing OLL
+                            
+                            # Evaluate PLL (Permute Last Layer)
+                            if self._is_solved(cube_state):
+                                score += 200  # Bonus for solving the cube
+            
         return score
 
     def _evaluate_f2l(self, cube_state):
@@ -499,7 +511,7 @@ class RLCubeSolver:
         f2l_edges_positions = [
             (front_face, (1, 2), right_face, (1, 0)),  # Front-right edge
             (front_face, (1, 0), left_face, (1, 2)),   # Front-left edge
-            (back_face, (1, 2), left_face, (1, 0)),    # Back-left edge
+            (back_face, (1, 2), left_face, (1, 0)),     # Back-left edge
             (back_face, (1, 0), right_face, (1, 2))    # Back-right edge
         ]
         expected_colors = [
@@ -709,46 +721,6 @@ class RLCubeSolver:
                     
         return score
 
-    def _get_solved_corners(self, cube_state):
-        """Return a set of indices of correctly placed and oriented corners"""
-        solved_corners = set()
-        bottom_face = 5  # White face
-        front_face = 1   # Blue face
-        right_face = 2   # Red face
-        left_face = 3    # Orange face
-        back_face = 4    # Green face
-        
-        if cube_state[bottom_face][1][1][0] != 'w':
-            return solved_corners
-        
-        corner_positions = [(0, 0), (0, 2), (2, 0), (2, 2)]
-        expected_colors = [
-            ['w', 'b', 'o'],  # Front-left: white, blue, orange
-            ['w', 'b', 'r'],  # Front-right: white, blue, red
-            ['w', 'g', 'o'],  # Back-left: white, green, orange
-            ['w', 'g', 'r']   # Back-right: white, green, red
-        ]
-        
-        adjacent_faces = [
-            [(front_face, (2, 0)), (left_face, (2, 2))],
-            [(front_face, (2, 2)), (right_face, (2, 0))],
-            [(back_face, (2, 2)), (left_face, (2, 0))],
-            [(back_face, (2, 0)), (right_face, (2, 2))]
-        ]
-        
-        for i, pos in enumerate(corner_positions):
-            row, col = pos
-            actual_colors = [
-                cube_state[bottom_face][row][col][0],
-                cube_state[adjacent_faces[i][0][0]][adjacent_faces[i][0][1][0]][adjacent_faces[i][0][1][1]][0],
-                cube_state[adjacent_faces[i][1][0]][adjacent_faces[i][1][1][0]][adjacent_faces[i][1][1][1]][0]
-            ]
-            
-            if actual_colors == expected_colors[i]:
-                solved_corners.add(i)
-        
-        return solved_corners
-
     def _get_state_hash(self, cube_state):
         """
         Convert a cube state to a hashable representation
@@ -807,68 +779,6 @@ class RLCubeSolver:
         
         return penalty
 
-    def _detect_loop(self, move_history):
-        """
-        Enhanced detection for identifying more loop patterns
-        """
-        if len(move_history) < 6:
-            return False # Not enough move history for subsequent checks if state checks didn't trigger
-
-        # Check for 2-move loop like (R U R U R U...)
-        if move_history[-1] == move_history[-3] == move_history[-5] and \
-           move_history[-2] == move_history[-4] == move_history[-6]:
-            print("  Move-based loop detected (A B A B A B).")
-            return True
-        
-        # Check for 3-move loop
-        if len(move_history) >= 9:
-            if move_history[-1] == move_history[-4] == move_history[-7] and \
-               move_history[-2] == move_history[-5] == move_history[-8] and \
-               move_history[-3] == move_history[-6] == move_history[-9]:
-                print("  Move-based loop detected (A B C A B C A B C).")
-                return True
-        
-        # Check for 4-move loop
-        if len(move_history) >= 12:
-            pattern_4 = move_history[-4:]
-            if move_history[-8:-4] == pattern_4 and move_history[-12:-8] == pattern_4:
-                 print("  Move-based loop detected (A B C D pattern x3).")
-                 return True
-        
-        # Check for longer patterns that might be missed
-        if len(move_history) >= 16:
-            for pattern_length in range(2, 8):
-                if len(move_history) >= pattern_length * 3:
-                    recent_pattern = move_history[-pattern_length:]
-                    is_repeating = True
-                    for i in range(1, 3):
-                        offset = pattern_length * i
-                        # Ensure indices are valid for comparison
-                        start_compare_idx = -pattern_length - offset
-                        end_compare_idx = -offset if -offset != 0 else None
-                        
-                        if len(move_history) < pattern_length + offset : # Not enough history to compare
-                            is_repeating = False
-                            break
-
-                        compare_pattern = move_history[start_compare_idx : end_compare_idx]
-                        if recent_pattern != compare_pattern:
-                            is_repeating = False
-                            break
-                    if is_repeating:
-                        print(f"  Move-based loop detected (longer pattern, length {pattern_length} x3).")
-                        return True
-        
-        # Detect oscillation (alternating between two small sets of moves)
-        if len(move_history) >= 8:
-            set1 = frozenset(move_history[-4:])
-            set2 = frozenset(move_history[-8:-4])
-            if len(set1) <= 2 and len(set2) <= 2 and set1 == set2:
-                print("  Move-based oscillation detected (alternating small sets of moves).")
-                return True
-        
-        return False
-
     def _get_inverse_move(self, face, direction):
         """Get the inverse of a move"""
         if direction == "clockwise":
@@ -878,94 +788,6 @@ class RLCubeSolver:
         else:  # double
             return (face, "double")  # Double move is its own inverse
 
-    def _advanced_loop_breaker(self, current_state):
-        """Apply a sequence of moves designed to escape a loop while preserving progress"""
-        
-        # Use a random breaker regardless of progress
-        breakers = [
-            [("U", "clockwise"), ("U", "clockwise")],
-            [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")],
-            [("F", "clockwise"), ("U", "clockwise"), ("F", "counterclockwise")],
-            [("L", "clockwise"), ("U", "clockwise"), ("L", "counterclockwise")],
-            [("U", "double"), ("R", "double"), ("F", "double")],
-            [("L", "clockwise"), ("U", "double"), ("L", "counterclockwise")],
-            [("R", "clockwise"), ("D", "clockwise"), ("R", "counterclockwise")],
-            [("R", "clockwise"), ("F", "clockwise"), ("R", "counterclockwise"), ("F", "counterclockwise")],
-            [("R", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise"), ("U", "clockwise"), ("R", "clockwise"), ("U", "clockwise"), ("U", "clockwise"), ("R", "counterclockwise")],
-        ]
-        
-        # Apply different orientations to the breaker algorithms
-        face_map = {
-            "U": ["U", "F", "R", "B", "L"],
-            "D": ["D", "F", "R", "B", "L"],
-            "F": ["F", "U", "R", "D", "L"],
-            "B": ["B", "U", "R", "D", "L"],
-            "R": ["R", "U", "F", "D", "B"],
-            "L": ["L", "U", "F", "D", "B"]
-        }
-        
-        # Choose a random breaker first
-        selected_breaker = random.choice(breakers)
-        
-        # Choose a random orientation too
-        orientation = random.choice(list(face_map.keys()))
-        
-        # Apply the orientation mapping to the selected breaker
-        oriented_breaker = []
-        for face, direction in selected_breaker:
-            mapping_list = ["U", "F", "R", "B", "L"]
-            if face in mapping_list:
-                mapped_face = face_map[orientation][mapping_list.index(face)]
-                oriented_breaker.append((mapped_face, direction))
-            else:
-                oriented_breaker.append((face, direction))
-
-        return oriented_breaker
-
-    def _get_next_target_after_cross(self, cube_state):
-        """
-        When cross is complete, determine what to focus on next
-        Returns a focus area and corresponding algorithm if applicable
-        """
-        bottom_face = 5  # White face
-        cross_score = self._evaluate_white_cross(cube_state)
-        corners_score = self._evaluate_white_corners(cube_state)
-        
-        # If cross is solved but corners aren't, focus on corners
-        if cross_score >= 90 and corners_score < 90:
-            # Check which corners need solving
-            corner_positions = [(0, 0), (0, 2), (2, 0), (2, 2)]
-            front_face = 1
-            right_face = 2
-            left_face = 3
-            back_face = 4
-            
-            # Adjacent face indices for each corner
-            adjacent_faces = [
-                [(front_face, (2, 0)), (left_face, (2, 2))],    # Front-left
-                [(front_face, (2, 2)), (right_face, (2, 0))],   # Front-right
-                [(back_face, (2, 2)), (left_face, (2, 0))],     # Back-left
-                [(back_face, (2, 0)), (right_face, (2, 2))]     # Back-right
-            ]
-            
-            for i, pos in enumerate(corner_positions):
-                row, col = pos
-                
-                # Skip if this corner is already correct
-                if cube_state[bottom_face][row][col][0] == 'w' and \
-                   cube_state[adjacent_faces[i][0][0]][adjacent_faces[i][0][1][0]][adjacent_faces[i][0][1][1]][0] == cube_state[adjacent_faces[i][0][0]][1][1][0] and \
-                   cube_state[adjacent_faces[i][1][0]][adjacent_faces[i][1][1][0]][adjacent_faces[i][1][1][1]][0] == cube_state[adjacent_faces[i][1][0]][1][1][0]:
-                    continue
-                
-                # Find a relevant algorithm for this corner
-                return "corner", i, None
-        
-        # If corners are also done, focus on the middle layer (F2L edges)
-        elif cross_score >= 90 and corners_score >= 90:
-            return "f2l", None, None
-            
-        # Default: keep working on cross
-        return "cross", None, None
 
     def solve(self, cube_state, controller=None, max_runtime=None):
         """
@@ -1002,6 +824,12 @@ class RLCubeSolver:
             best_cross_state = copy.deepcopy(current_state)
             best_cross_step = 0  # Track when best cross was achieved
 
+            best_corners_score = 0
+            best_corners_state = None
+            best_corners_step = 0
+            corners_regress_counter = 0
+            corners_regress_limit = 6  # More strict than cross regression
+
             move_history = []
             visited_states = set()
             exploration_probability = 0.15  # Base exploration rate
@@ -1026,9 +854,13 @@ class RLCubeSolver:
                 # Update the stage based on progress
                 if not white_cross_solved and self._evaluate_white_cross(current_state) >= 100:
                     white_cross_solved = True
-                    self.stage = "f2l"#uses same algorithms as corners
+                    # Don't change the stage yet - we still need to solve corners
+                    print("White cross solved! Now solving corners...")
+                elif white_cross_solved and self._evaluate_white_corners(current_state) >= 150 and self.stage == "cross":
+                    # Now move to the F2L stage after corners are solved
+                    self.stage = "f2l"
                     self._update_actions_for_stage()
-                    print("White cross solved! Moving to F2L...")
+                    print("White corners solved! Moving to F2L...")
                 elif white_cross_solved and not f2l_solved and self._evaluate_f2l(current_state) >= 100:
                     f2l_solved = True
                     self.stage = "oll"
@@ -1075,6 +907,14 @@ class RLCubeSolver:
                     cross_regress_counter = 0
                     print(f"  Improved white cross! Score: {white_cross_score:.0f}")
 
+                corners_score = self._evaluate_white_corners(current_state)
+                if corners_score > best_corners_score:
+                    best_corners_score = corners_score
+                    best_corners_state = copy.deepcopy(current_state)
+                    best_corners_step = step
+                    corners_regress_counter = 0
+                    print(f"  Improved white corners! Score: {corners_score:.0f}")
+
                 # Allow temporary regression, but revert if cross progress is lost for too long
                 if not white_cross_solved:
                     if white_cross_score < best_white_cross * 0.7:
@@ -1090,6 +930,21 @@ class RLCubeSolver:
                             continue
                     else:
                         cross_regress_counter = 0
+
+                # Handle corner regression
+                if white_cross_solved and not f2l_solved:
+                    if corners_score < best_corners_score * 0.8:  # Less tolerance for corner regression
+                        corners_regress_counter += 1
+                        print(f"  Corner regression detected ({corners_regress_counter}/{corners_regress_limit})")
+                        if corners_regress_counter >= corners_regress_limit:
+                            print("  Too much corner regression, reverting to best corners state.")
+                            current_state = copy.deepcopy(best_corners_state)
+                            solution_moves = solution_moves[:best_corners_step]
+                            move_history = move_history[:best_corners_step]
+                            corners_regress_counter = 0
+                            continue
+                    else:
+                        corners_regress_counter = 0
 
                 all_evaluated_options = []
 
@@ -1137,19 +992,28 @@ class RLCubeSolver:
 
                     stage_bonus = 0
                     eval_cross_score = self._evaluate_white_cross(temp_eval_state)
+                    eval_corners_score = self._evaluate_white_corners(temp_eval_state)
 
-                    # Penalties for losing progress (relaxed: allow temporary regression)
-                    # Only apply a strong penalty if cross is lost for too long (handled above)
-                    # Here, just apply a mild penalty for regression
-                    if white_cross_solved and eval_cross_score < 100:  # Lost solved cross
-                        stage_bonus -= 2000 
-                    elif not white_cross_solved and white_cross_score > 0 and eval_cross_score < white_cross_score * 0.7:
-                        stage_bonus -= (white_cross_score - eval_cross_score) * 2  # Mild penalty
+                    # Favor algorithms over single moves, especially for F2L and corners
+                    if action_type == 'algorithm':
+                        # Strong bonus for using algorithms in appropriate stages
+                        if self.stage == "cross" and white_cross_score < 100:
+                            stage_bonus += 20  # Small bonus for algorithms during cross
+                        elif white_cross_solved and corners_score < 150:
+                            stage_bonus += 150  # Big bonus for algorithms during corner solving
+                        elif self.stage == "f2l":
+                            stage_bonus += 200  # Very big bonus for algorithms during F2L
+                        elif self.stage == "oll":
+                            stage_bonus += 180  # Big bonus for algorithms during OLL
+                        elif self.stage == "pll":
+                            stage_bonus += 180  # Big bonus for algorithms during PLL
 
-                    # Bonuses for achieving/improving stages
-                    if not white_cross_solved and eval_cross_score > white_cross_score:
-                        stage_bonus += (eval_cross_score - white_cross_score) * 15  # Strong bonus for cross progress
-                        if eval_cross_score >= 100: stage_bonus += 500  # Cross completion bonus
+                    # Penalize excessive U turns when working on F2L and corners
+                    if action_type == 'single_move' and action_definition['move_tuple'][0] == 'U':
+                        if white_cross_solved and corners_score < 150:
+                            stage_bonus -= 40  # Penalty for U turns during corner solving
+                        elif self.stage == "f2l":
+                            stage_bonus -= 30  # Penalty for U turns during F2L
 
                     new_state_hash = self._get_state_hash(temp_eval_state)
                     visit_penalty = 200 if new_state_hash in visited_states else 0
@@ -1173,12 +1037,31 @@ class RLCubeSolver:
                 # --- RL: Epsilon-greedy selection ---
                 chosen_option_details = None
                 epsilon = exploration_probability
+
+                # Increase exploration during F2L and corners stages
+                if white_cross_solved and (not f2l_solved or corners_score < 150):
+                    epsilon = max(0.25, epsilon)  # Higher exploration during critical stages
+
                 if q_values is not None:
                     # Anneal epsilon over time
-                    epsilon = max(0.05, exploration_probability * (1 - step / self.max_steps))
+                    epsilon = max(0.05, epsilon * (1 - step / self.max_steps))
+
                 if np.random.rand() < epsilon and len(all_evaluated_options) > 1:
-                    chosen_option_details = np.random.choice(all_evaluated_options[1:min(6, len(all_evaluated_options))])
-                    print(f"  RL Exploring: {chosen_option_details.get('name', chosen_option_details.get('move_tuple'))}")
+                    # Filter for algorithm options first
+                    algorithm_options = [
+                        opt for opt in all_evaluated_options 
+                        if opt["type"] == "algorithm" and 
+                        (white_cross_solved and (not f2l_solved or corners_score < 150))
+                    ]
+                    
+                    # If we have algorithm options and we're in the right stage, prefer those
+                    if algorithm_options and white_cross_solved and (not f2l_solved or corners_score < 150):
+                        chosen_option_details = np.random.choice(algorithm_options[:min(5, len(algorithm_options))])
+                        print(f"  RL Exploring (Algorithm): {chosen_option_details.get('name')}")
+                    else:
+                        # Otherwise choose from all options
+                        chosen_option_details = np.random.choice(all_evaluated_options[1:min(6, len(all_evaluated_options))])
+                        print(f"  RL Exploring: {chosen_option_details.get('name', chosen_option_details.get('move_tuple'))}")
                 elif all_evaluated_options:
                     chosen_option_details = all_evaluated_options[0]
                     print(f"  RL Exploiting: {chosen_option_details.get('name', chosen_option_details.get('move_tuple'))}")

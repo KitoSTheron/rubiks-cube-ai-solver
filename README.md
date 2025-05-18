@@ -86,17 +86,15 @@ The `RLCubeSolver` class is designed to find a sequence of moves to solve a scra
      - Otherwise, it exploits by selecting the action with the highest Q-value or heuristic score.
    - Epsilon is annealed over time, gradually reducing exploration as the solver progresses.
 
-7. **Loop Detection and Breaking (`_detect_loop`, `_advanced_loop_breaker`):**
-   - The solver detects repetitive move patterns (e.g., loops or oscillations) and applies a "breaker" sequence of moves to escape the loop while preserving progress.
 
-8. **Stage-Specific Focus:**
+7. **Stage-Specific Focus:**
    - The solver dynamically updates its focus and action set based on the current solving stage:
      - **Cross**: Prioritizes speed and single moves.
      - **F2L**: Focuses on placing middle-layer edges using F2L algorithms.
      - **OLL**: Focuses on orienting the last layer using OLL algorithms and U moves.
      - **PLL**: Focuses on permuting the last layer using PLL algorithms and U moves.
 
-9. **Termination:**
+8. **Termination:**
    - The solving process continues until the cube is solved, a maximum number of steps is reached, or a maximum runtime is exceeded.
 
 ---
